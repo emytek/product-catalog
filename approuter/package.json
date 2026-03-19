@@ -1,0 +1,14 @@
+{
+  "name": "product-catalog-approuter",
+  "version": "1.0.0",
+  "description": "SAP Approuter for Product Catalog Manager",
+  "scripts": {
+    "start": "node node_modules/@sap/approuter/approuter.js"
+  },
+  "dependencies": {
+    "@sap/approuter": "^14.4.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,844 @@
+================================================================================
+  PRODUCT CATALOG MANAGER — SAP BTP CLOUD FOUNDRY DEPLOYMENT GUIDE
+  Complete Step-by-Step Guide from Local to Production
+================================================================================
+  Version : 1.0.0
+  Date    : 2026-03-18
+================================================================================
+
+This guide takes you from a working local setup all the way to a live app
+running on SAP BTP Cloud Foundry, accessible via a public URL.
+
+IMPORTANT READ BEFORE YOU START
+────────────────────────────────
+Your local SQL Server (localhost:1433) is only accessible on your own machine.
+BTP Cloud Foundry apps run in SAP's data centres in the cloud — they cannot
+connect to your laptop.  You MUST move the database to a cloud-accessible host
+before deploying.  Section 2 covers this in detail.
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+  PHASE 1 — Prepare the Cloud Database
+    Step 1.1 — Create a Free Azure SQL Database
+    Step 1.2 — Configure Firewall on Azure SQL
+    Step 1.3 — Run Migrations and Seed on Azure SQL
+
+  PHASE 2 — Prepare Your BTP Account
+    Step 2.1 — Create (or use) a BTP Trial Account
+    Step 2.2 — Enable Cloud Foundry, Create a Space
+
+  PHASE 3 — Install Deployment Tools
+    Step 3.1 — Install the Cloud Foundry CLI (cf)
+    Step 3.2 — Install the MBT Build Tool
+    Step 3.3 — Verify All Tools are Installed
+
+  PHASE 4 — Understand What Gets Deployed
+    Step 4.1 — The Three-Module Architecture
+
+  PHASE 5 — Prepare the Project for Deployment
+    Step 5.1 — Files That Were Updated for You
+    Step 5.2 — Check Your index.html
+
+  PHASE 6 — Create CF Services
+    Step 6.1 — Log in to Cloud Foundry
+    Step 6.2 — Create the MSSQL User-Provided Service
+
+  PHASE 7 — Build and Deploy
+    Step 7.1 — Open BAS (or use Local Terminal)
+    Step 7.2 — Build the MTA Archive
+    Step 7.3 — Deploy to Cloud Foundry
+    Step 7.4 — Monitor the Deployment
+
+  PHASE 8 — Verify and Access Your App
+    Step 8.1 — Find Your Live URL
+    Step 8.2 — Run Health Check
+    Step 8.3 — Open the App in the Browser
+
+  PHASE 9 — Troubleshooting Common Issues
+
+
+================================================================================
+PHASE 1 — PREPARE THE CLOUD DATABASE
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 1.1 — Create a Free Azure SQL Database
+─────────────────────────────────────────────────────────────────────────────
+
+WHY AZURE SQL?
+  Azure SQL Database is Microsoft's managed SQL Server service in the cloud.
+  It is compatible with your existing SQL Server migrations and seed scripts
+  (same T-SQL syntax, same stored procedures, same everything).
+  The free tier (250GB, 32GB storage) is sufficient for this demo.
+
+  You need an Azure account.  If you don't have one:
+    https://azure.microsoft.com/en-us/free
+    (Free account gives you $200 credit for 30 days + free services)
+
+CREATING THE DATABASE:
+
+  1. Log in to the Azure Portal: https://portal.azure.com
+
+  2. In the search bar at the top, type "SQL databases" and click the result.
+
+  3. Click "Create" (top-left blue button).
+
+  4. Fill in the form:
+
+     BASICS TAB:
+     ┌───────────────────────────────────────────────────────────┐
+     │ Subscription    : your Azure subscription                 │
+     │ Resource group  : Create new → name it "product-catalog"  │
+     │ Database name   : ProductCatalogDB                        │
+     │ Server          : Create new (see sub-steps below)        │
+     │ Want to use SQL elastic pool? : No                        │
+     │ Compute + storage : Click "Configure database"            │
+     │                     → Choose "Free offer" if available    │
+     │                       OR choose "Basic" ($5/month)        │
+     └───────────────────────────────────────────────────────────┘
+
+     CREATING THE SERVER (popup that opens):
+     ┌───────────────────────────────────────────────────────────┐
+     │ Server name     : product-catalog-sql  (must be globally  │
+     │                   unique — add your initials if needed,   │
+     │                   e.g. product-catalog-sql-no)           │
+     │ Location        : Choose the region closest to you        │
+     │                   (or the same region as your BTP account)│
+     │ Authentication  : Use SQL authentication                  │
+     │ Server admin login : sqladmin                             │
+     │ Password        : Choose a strong password                │
+     │                   Example: ProdCat@2026!                  │
+     │                   WRITE THIS DOWN — you will need it      │
+     └───────────────────────────────────────────────────────────┘
+     Click "OK" to confirm the server.
+
+  5. Click "Review + Create" → "Create".
+     The deployment takes 2-5 minutes.
+
+  6. Once deployed, go to your new SQL database resource.
+     On the Overview page, note:
+       - Server name: product-catalog-sql.database.windows.net
+       - Database name: ProductCatalogDB
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 1.2 — Configure Firewall on Azure SQL
+─────────────────────────────────────────────────────────────────────────────
+
+By default, Azure SQL blocks all external connections.  You need to:
+  (a) Allow YOUR computer to run migrations and seed
+  (b) Allow all Azure services (so BTP can connect)
+
+  1. Go to your SQL Server resource (not the database — the server).
+     In the left sidebar, click "Networking" (or "Firewalls and virtual networks").
+
+  2. Under "Firewall rules":
+     - Click "Add your client IPv4 address" — this adds your current IP.
+       This lets you connect from SSMS on your computer.
+
+  3. Under "Exceptions":
+     - Check the box: "Allow Azure services and resources to access this server"
+       This allows BTP (which runs in Azure data centres) to connect.
+
+  4. Click "Save".
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 1.3 — Run Migrations and Seed on Azure SQL
+─────────────────────────────────────────────────────────────────────────────
+
+You need to run the same three SQL scripts you ran on your local SQL Server,
+but this time against the Azure SQL database.
+
+CONNECTING VIA SSMS TO AZURE SQL:
+
+  1. Open SSMS.
+
+  2. In the Connect dialog:
+     ┌─────────────────────────────────────────────────────────────┐
+     │ Server type   : Database Engine                             │
+     │ Server name   : product-catalog-sql.database.windows.net   │
+     │                 (your actual server name from the portal)   │
+     │ Authentication: SQL Server Authentication                   │
+     │ Login         : sqladmin                                    │
+     │ Password      : ProdCat@2026!  (your password)             │
+     └─────────────────────────────────────────────────────────────┘
+     Click "Connect".
+
+  3. Azure SQL connects on port 1433.
+     If it times out:
+     - Check the firewall in Step 1.2 — your IP must be allowed.
+     - Make sure port 1433 is not blocked by your company/home firewall.
+
+RUNNING THE SCRIPTS:
+
+  IMPORTANT: Azure SQL does not support USE [DatabaseName] at the start of
+  script files the same way local SQL Server does.  You have two options:
+
+  Option A — Run scripts from the master database context:
+    Connect to the server (no database selected in the dropdown at top).
+    001_initial_schema.sql will create the database.
+    Then switch the dropdown to ProductCatalogDB before running the next scripts.
+
+  Option B — Connect directly to ProductCatalogDB (after 001 creates it):
+    After 001 runs, disconnect and reconnect specifying ProductCatalogDB.
+
+  STEP-BY-STEP:
+
+  A. In SSMS with the Azure SQL connection open, click:
+     File → Open → File → navigate to:
+       backend\database\migrations\001_initial_schema.sql
+     Press F5 to run.
+     This creates the ProductCatalogDB database, all tables, and constraints.
+
+  B. In the database dropdown at the top of SSMS, select "ProductCatalogDB".
+     (If you don't see it, right-click "Databases" in Object Explorer → Refresh)
+
+  C. Open: backend\database\migrations\002_indexes_procedures.sql
+     Press F5 to run.
+     This creates all indexes, the vw_ProductFull view, and stored procedures.
+
+  D. Open: backend\database\seeds\001_seed_data.sql
+     Press F5 to run.
+     Expected output: "Seed 001 complete: 25 products, categories, suppliers, and tags inserted."
+
+  E. Verify:
+     Run this query to confirm data is in Azure SQL:
+       USE ProductCatalogDB;
+       SELECT COUNT(*) AS Products FROM Products;
+       SELECT COUNT(*) AS Categories FROM Categories;
+     Expected: Products=25, Categories=5
+
+  NOTE ON AZURE SQL DIFFERENCES:
+    Azure SQL does not support Windows Authentication.
+    Always use SQL Server Authentication (sqladmin + password) to connect.
+    Azure SQL uses port 1433 with ENCRYPT=true by default — this is why
+    mta.yaml sets DB_ENCRYPT=true for the production deployment.
+
+
+================================================================================
+PHASE 2 — PREPARE YOUR BTP ACCOUNT
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 2.1 — Create or Use a BTP Trial Account
+─────────────────────────────────────────────────────────────────────────────
+
+If you already have a BTP account (trial or paid), skip to Step 2.2.
+
+To create a free BTP Trial account:
+  1. Go to: https://www.sap.com/products/technology-platform/trial.html
+  2. Click "Start your free trial".
+  3. Sign in with your SAP Universal ID (or create one).
+  4. Choose a region (pick one geographically close to you).
+  5. Accept the terms and wait for the account to be provisioned (1-2 minutes).
+
+  You will land on the BTP Cockpit:
+    https://cockpit.btp.cloud.sap
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 2.2 — Enable Cloud Foundry and Create a Space
+─────────────────────────────────────────────────────────────────────────────
+
+BTP organises apps into: Global Account → Subaccount → CF Org → CF Space
+
+  1. In BTP Cockpit, click your subaccount (usually called "trial").
+
+  2. In the left sidebar, click "Cloud Foundry" → "Spaces".
+     If CF is not yet enabled:
+       - Click "Enable Cloud Foundry"
+       - Instance name: trial  (or any name you like)
+       - Plan: standard
+       - Click "Create"
+       - Wait for it to be enabled (~1 minute)
+
+  3. You should see a space called "dev" already created for trial accounts.
+     If not, click "Create Space" → name it "dev" → click "Create".
+
+  4. Write down these values — you need them when logging in with cf CLI:
+     ┌─────────────────────────────────────────────────────────────┐
+     │ API Endpoint : shown in the Spaces overview                 │
+     │               looks like:                                   │
+     │               https://api.cf.us10-001.hana.ondemand.com    │
+     │               OR                                            │
+     │               https://api.cf.eu10.hana.ondemand.com        │
+     │ Org name     : shown in the Spaces overview                 │
+     │               usually your BTP user ID + "trial"           │
+     │ Space name   : dev                                          │
+     └─────────────────────────────────────────────────────────────┘
+
+  HOW TO FIND YOUR API ENDPOINT:
+    In BTP Cockpit → your subaccount → Overview page.
+    Look for "Cloud Foundry Environment" section.
+    The API endpoint is listed there.
+
+
+================================================================================
+PHASE 3 — INSTALL DEPLOYMENT TOOLS
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 3.1 — Install the Cloud Foundry CLI (cf)
+─────────────────────────────────────────────────────────────────────────────
+
+The CF CLI is the command-line tool for pushing apps and managing services
+on Cloud Foundry (the runtime BTP uses).
+
+WINDOWS INSTALLATION:
+  1. Go to: https://github.com/cloudfoundry/cli/releases
+  2. Find the latest release (e.g. v8.x.x).
+  3. Under "Assets", download: cf8-installer-windows-x86-64.zip (or .exe)
+  4. If you downloaded a zip, extract it.
+     Double-click the installer (.exe or the extracted setup) and follow prompts.
+  5. After installation, open a NEW terminal (Windows Terminal or Command Prompt).
+  6. Verify installation:
+       cf --version
+     Expected output:  cf version 8.x.x
+
+  ALTERNATIVE — Install via winget (if you have it):
+    winget install CloudFoundry.cli
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 3.2 — Install the MBT Build Tool
+─────────────────────────────────────────────────────────────────────────────
+
+MBT (Multi-Target Application Build Tool) reads mta.yaml and packages your
+entire application (Node.js backend + Approuter + static files) into a single
+.mtar archive file that CF can deploy.
+
+  Install globally via npm (run in any terminal):
+    npm install -g mbt
+
+  Verify:
+    mbt --version
+  Expected output: mbt version 1.x.x
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 3.3 — Verify All Tools
+─────────────────────────────────────────────────────────────────────────────
+
+Run each of these in a terminal.  All must produce version numbers:
+
+  node --version          # Should be v18.x.x or later
+  npm --version           # Should be 9.x.x or later
+  cf --version            # Should be cf version 8.x.x
+  mbt --version           # Should be mbt version 1.x.x
+
+If any of these fail, re-do that tool's installation step before proceeding.
+
+
+================================================================================
+PHASE 4 — UNDERSTAND WHAT GETS DEPLOYED
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 4.1 — The Three-Component Architecture on BTP
+─────────────────────────────────────────────────────────────────────────────
+
+After deployment, three things will run in your BTP CF space:
+
+  ┌────────────────────────────────────────────────────────────────────┐
+  │                        SAP BTP Cloud Foundry Space                 │
+  │                                                                    │
+  │  User's Browser                                                    │
+  │       │                                                            │
+  │       │ HTTPS requests                                             │
+  │       ▼                                                            │
+  │  ┌──────────────────────────────────┐                             │
+  │  │  product-catalog-approuter       │  <── One public URL         │
+  │  │  (SAP Approuter)                 │      e.g. product-catalog   │
+  │  │  128MB CF app                    │      -approuter-xxx.cfapps  │
+  │  │                                  │      .us10.hana.ondemand.com│
+  │  │  Request: GET /api/v1/products   │                             │
+  │  │       │   forwards to API ───────┼──────────────────────┐      │
+  │  │  Request: GET /index.html        │                       │      │
+  │  │       │   serves from webapp/    │                       │      │
+  │  └──────────────────────────────────┘                       │      │
+  │                                                             │      │
+  │                                             ┌───────────────▼──┐   │
+  │                                             │ product-catalog  │   │
+  │                                             │ -api             │   │
+  │                                             │ (Node.js)        │   │
+  │                                             │ 512MB CF app     │   │
+  │                                             │ (internal URL)   │   │
+  │                                             └──────────────────┘   │
+  │                                                      │              │
+  │                                              SQL over internet      │
+  │                                                      │              │
+  │                                             ┌────────▼─────────┐   │
+  │                                             │  Azure SQL DB    │   │
+  │                                             │  (external)      │   │
+  │                                             └──────────────────┘   │
+  └────────────────────────────────────────────────────────────────────┘
+
+KEY POINTS:
+  - Only the Approuter has a PUBLIC URL — users access your app through it.
+  - The API (Node.js backend) has an INTERNAL URL — only the Approuter calls it.
+  - The Azure SQL database is EXTERNAL — both local development and BTP use it.
+  - The mta.yaml file defines all of this configuration.
+
+WHAT mta.yaml DOES:
+  - product-catalog-api module   → deploys backend/ as a Node.js CF app
+  - product-catalog-approuter module → deploys approuter/ as a CF app,
+    copies webapp/ files into it so the Approuter can serve the SAPUI5 frontend
+  - product-catalog-mssql resource → CF user-provided service that holds
+    your Azure SQL credentials (host, port, database, user, password)
+
+
+================================================================================
+PHASE 5 — PREPARE THE PROJECT FOR DEPLOYMENT
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 5.1 — Files That Were Updated for You
+─────────────────────────────────────────────────────────────────────────────
+
+The following files have already been updated in your project to make the
+BTP deployment work correctly.  No action needed — just review them if curious.
+
+  mta.yaml (root folder)
+    - Simplified to 2 modules (removed the separate html5 module which caused
+      build issues).
+    - The approuter build step now copies the webapp/ folder into the
+      approuter package using: cp -r ../webapp ./webapp
+    - Redis is optional (removed from required services — the app runs fine
+      without it using in-process cache instead).
+
+  approuter/xs-app.json
+    - Changed localDir from "." to "webapp" so the Approuter knows the
+      SAPUI5 static files are in the webapp subfolder copied during build.
+
+  backend/.cfignore (NEW FILE)
+    - Tells cf push / mbt build to exclude node_modules, .env, and logs/
+      from the deployment package (they are rebuilt on CF or not needed).
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 5.2 — Check Your index.html
+─────────────────────────────────────────────────────────────────────────────
+
+Open webapp/index.html and verify this block exists (it was added earlier
+to fix the local API routing):
+
+  <script>
+      if (window.location.hostname === "localhost") {
+          window.API_BASE_URL = "http://localhost:3000";
+      }
+  </script>
+
+On BTP the hostname is NOT localhost, so window.API_BASE_URL stays undefined,
+and ApiService uses BASE_URL = "" + "/api/v1" = "/api/v1" (same-origin).
+The Approuter then routes /api/* to the Node.js backend automatically.
+This means the same code works on both local and BTP with no changes needed.
+
+
+================================================================================
+PHASE 6 — CREATE CF SERVICES
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 6.1 — Log in to Cloud Foundry
+─────────────────────────────────────────────────────────────────────────────
+
+Open a terminal (Windows Terminal / Command Prompt / PowerShell).
+
+  1. Run the login command with your API endpoint:
+
+       cf login -a https://api.cf.us10-001.hana.ondemand.com
+
+     REPLACE the URL with YOUR actual CF API endpoint from Step 2.2.
+     Common endpoints by region:
+       US East   :  https://api.cf.us10-001.hana.ondemand.com
+       EU (Frankfurt):  https://api.cf.eu10.hana.ondemand.com
+       Singapore :  https://api.cf.ap10.hana.ondemand.com
+
+  2. You will be prompted:
+       Email:    → enter your SAP BTP / SAP Universal ID email
+       Password: → enter your password
+
+  3. If you have multiple orgs or spaces, you will be prompted to select them.
+     Select your org (e.g. "NnaemekaOkalla_trial") and space (e.g. "dev").
+
+  4. Verify you are logged in to the right place:
+       cf target
+     Expected output:
+       API endpoint:   https://api.cf.us10-001.hana.ondemand.com
+       API version:    3.x.x
+       user:           your.email@example.com
+       org:            NnaemekaOkalla_trial
+       space:          dev
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 6.2 — Create the MSSQL User-Provided Service
+─────────────────────────────────────────────────────────────────────────────
+
+A CF user-provided service stores your Azure SQL credentials securely in BTP.
+When the API app is deployed and bound to this service, CF injects the
+credentials as environment variables into the app — you never hardcode them.
+
+Run this single command (replace the values with YOUR Azure SQL details):
+
+  WINDOWS (Command Prompt):
+    cf create-user-provided-service product-catalog-mssql -p "{\"host\":\"product-catalog-sql.database.windows.net\",\"port\":\"1433\",\"database\":\"ProductCatalogDB\",\"user\":\"sqladmin\",\"password\":\"YourPasswordHere\"}"
+
+  WINDOWS (PowerShell):
+    cf create-user-provided-service product-catalog-mssql -p '{\"host\":\"product-catalog-sql.database.windows.net\",\"port\":\"1433\",\"database\":\"ProductCatalogDB\",\"user\":\"sqladmin\",\"password\":\"YourPasswordHere\"}'
+
+  LINUX / BAS TERMINAL (easier — use single quotes):
+    cf create-user-provided-service product-catalog-mssql \
+      -p '{"host":"product-catalog-sql.database.windows.net","port":"1433","database":"ProductCatalogDB","user":"sqladmin","password":"YourPasswordHere"}'
+
+  PARAMETER GUIDE:
+  ┌────────────┬──────────────────────────────────────────────────────────┐
+  │ host       │ Your Azure SQL server name from the Azure Portal         │
+  │            │ Format: your-server-name.database.windows.net            │
+  │ port       │ Always 1433 for SQL Server                               │
+  │ database   │ ProductCatalogDB  (the database you created)             │
+  │ user       │ sqladmin  (the admin login you chose in Step 1.1)        │
+  │ password   │ Your Azure SQL admin password from Step 1.1             │
+  └────────────┴──────────────────────────────────────────────────────────┘
+
+  VERIFY the service was created:
+    cf services
+  Expected output includes:
+    product-catalog-mssql   user-provided
+
+  NOTE: The service name "product-catalog-mssql" must match EXACTLY what is
+  in mta.yaml. Do not change it.
+
+
+================================================================================
+PHASE 7 — BUILD AND DEPLOY
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 7.1 — Open Terminal in the Project Root
+─────────────────────────────────────────────────────────────────────────────
+
+All commands in Phase 7 must be run from the ROOT of the project:
+  C:\Users\NnaemekaOkalla\Documents\Fiori\App
+
+Open a terminal and navigate there:
+  cd "C:\Users\NnaemekaOkalla\Documents\Fiori\App"
+
+Confirm you can see mta.yaml:
+  ls mta.yaml       (or: dir mta.yaml on Windows)
+
+ALTERNATIVELY — use SAP Business Application Studio (BAS):
+  BAS already has cf CLI and mbt installed.
+  Open a terminal in BAS, navigate to your project root, and proceed.
+  In BAS the commands are identical (it runs Linux under the hood).
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 7.2 — Build the MTA Archive
+─────────────────────────────────────────────────────────────────────────────
+
+The MBT tool reads mta.yaml and packages everything into a single .mtar file.
+
+  Run:
+    mbt build -p cf
+
+  What this does:
+    1. Reads mta.yaml to understand the modules and dependencies.
+    2. For product-catalog-api:
+       - Runs npm install inside backend/
+       - Excludes node_modules/, .env, logs/ (per .cfignore)
+       - Packages into a .zip archive
+    3. For product-catalog-approuter:
+       - Runs npm install inside approuter/
+       - Runs: cp -r ../webapp ./webapp  (copies the SAPUI5 frontend)
+       - Packages the approuter + webapp/ into a .zip archive
+    4. Creates a final .mtar file in:
+         mta_archives/product-catalog-manager_1.0.0.mtar
+
+  Successful build output ends with:
+    [INFO] MBT build finished successfully
+
+  TROUBLESHOOTING BUILD ERRORS:
+    If you see "cp: not found" or similar on Windows:
+    → The cp command is a Linux command.  Run the build in BAS (Linux) instead.
+    → In BAS terminal, the cp command works natively.
+
+    If you see "npm install failed":
+    → Make sure you have Node 18+ installed.
+    → Check that backend/package.json and approuter/package.json exist.
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 7.3 — Deploy to Cloud Foundry
+─────────────────────────────────────────────────────────────────────────────
+
+  Ensure you are still logged in to CF:
+    cf target
+  (If the session expired, run cf login again.)
+
+  Deploy the .mtar archive:
+    cf deploy mta_archives/product-catalog-manager_1.0.0.mtar
+
+  WHAT HAPPENS DURING DEPLOYMENT:
+    1. CF uploads the .mtar archive to BTP.
+    2. CF creates/updates the "product-catalog-mssql" service binding.
+    3. CF starts deploying product-catalog-api:
+       - Uploads the Node.js backend code
+       - Runs npm install in the CF environment
+       - Starts the app: NODE_ENV=production node server.js
+       - Runs the /health check — waits until it returns 200
+    4. CF starts deploying product-catalog-approuter:
+       - Uploads the approuter + webapp static files
+       - Starts the approuter process
+    5. Creates routes (public URLs) for the approuter.
+
+  DEPLOYMENT TAKES: approximately 3-8 minutes for a first deployment.
+  Updates (re-deployments) take about 2-4 minutes.
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 7.4 — Monitor the Deployment
+─────────────────────────────────────────────────────────────────────────────
+
+  Watch the terminal output.  Lines will look like:
+    Uploading 1 files...
+    Deploying in org "NnaemekaOkalla_trial" and space "dev"
+    ...
+    Application "product-catalog-api" started and available
+    Application "product-catalog-approuter" started and available
+    Process finished.
+
+  A SUCCESSFUL DEPLOYMENT ends with:
+    Process finished.
+    Use "cf dmol -i <deployment-id>" for the operation logs.
+
+  IF DEPLOYMENT FAILS:
+    The terminal will show the failed step.
+    Use this command to see the full application logs:
+      cf logs product-catalog-api --recent
+    Look for ERROR lines near the end of the output.
+    Common errors and fixes are in Phase 9 (Troubleshooting).
+
+
+================================================================================
+PHASE 8 — VERIFY AND ACCESS YOUR APP
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 8.1 — Find Your Live URL
+─────────────────────────────────────────────────────────────────────────────
+
+After successful deployment, run:
+  cf apps
+
+  Expected output:
+  ┌──────────────────────────────────┬─────────┬──────┬────────────────────────────────────────────┐
+  │ name                             │ state   │ inst │ urls                                       │
+  ├──────────────────────────────────┼─────────┼──────┼────────────────────────────────────────────┤
+  │ product-catalog-api              │ started │ 1/1  │ product-catalog-api-xxx.cfapps.us10...     │
+  │ product-catalog-approuter        │ started │ 1/1  │ product-catalog-approuter-xxx.cfapps.us10..│
+  └──────────────────────────────────┴─────────┴──────┴────────────────────────────────────────────┘
+
+  YOUR APP URL is the product-catalog-APPROUTER URL.
+  It will look like:
+    https://product-catalog-approuter-random-suffix.cfapps.us10-001.hana.ondemand.com
+
+  (The API URL is internal — you normally don't access it directly.)
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 8.2 — Run a Health Check
+─────────────────────────────────────────────────────────────────────────────
+
+Before opening the full app, verify the backend is healthy.
+Open this URL in your browser (replace with your actual API URL):
+  https://product-catalog-api-xxx.cfapps.us10-001.hana.ondemand.com/health
+
+  Expected JSON response:
+  {
+    "status": "UP",
+    "database": "connected",
+    "uptime": 45,
+    "timestamp": "2026-03-18T..."
+  }
+
+  If status is "DEGRADED" → the database connection failed.
+  See Phase 9 troubleshooting.
+
+─────────────────────────────────────────────────────────────────────────────
+STEP 8.3 — Open the App in the Browser
+─────────────────────────────────────────────────────────────────────────────
+
+Open the APPROUTER URL in your browser:
+  https://product-catalog-approuter-xxx.cfapps.us10-001.hana.ondemand.com
+
+  You should see your SAP Fiori Product Catalog Manager loading with all
+  25 products from your Azure SQL Database.
+
+  TEST THE FOLLOWING:
+  □  Home page loads with product count tiles
+  □  Product list shows all 25 products
+  □  Search / filter works
+  □  Click a product — detail page loads
+  □  Edit a product and save — change is persisted
+  □  Create a new product — appears in the list
+  □  Delete a product — removed from the list
+
+  If all of the above work, your deployment is complete and successful.
+
+
+================================================================================
+PHASE 9 — TROUBLESHOOTING COMMON ISSUES
+================================================================================
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE: App crashes on startup — "DB_HOST is not set"
+─────────────────────────────────────────────────────────────────────────────
+  Cause:  The product-catalog-mssql service was not created, or was created
+          with different credentials keys than expected.
+
+  Fix:
+    1. Verify the service exists:
+         cf services
+       You must see: product-catalog-mssql   user-provided
+
+    2. If missing, create it (see Step 6.2).
+
+    3. If it exists but the app still fails, check what credentials it has:
+         cf service product-catalog-mssql
+       Look at the credentials and confirm "host", "port", "database",
+       "user", "password" are ALL present.
+
+    4. After fixing the service, restage the app:
+         cf restage product-catalog-api
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE: /health returns "DEGRADED" — database unreachable
+─────────────────────────────────────────────────────────────────────────────
+  Cause:  The BTP app cannot reach your Azure SQL database.
+
+  Fix:
+    1. In Azure Portal → your SQL Server → Networking:
+       Confirm "Allow Azure services and resources to access this server"
+       is CHECKED and SAVED.
+
+    2. Verify the host name in your CF service is exactly:
+         your-server.database.windows.net
+       (NOT "localhost" — that only works on your machine)
+
+    3. Verify the password has no special characters that break JSON.
+       If the password contains " or \ characters, escape them or use
+       a different password.
+
+    4. Check logs:
+         cf logs product-catalog-api --recent
+       Search for lines starting with [DB] to see the connection error.
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE: "cp: not found" during mbt build on Windows
+─────────────────────────────────────────────────────────────────────────────
+  Cause:  cp is a Linux/Mac command.  Windows Command Prompt uses xcopy or
+          robocopy instead.  MBT runs build commands in a shell.
+
+  Fix (Option A — Recommended):
+    Run the build inside BAS (SAP Business Application Studio).
+    BAS runs on Linux, so cp works perfectly.
+    Open a BAS terminal, navigate to your project, and run:
+      mbt build -p cf
+
+  Fix (Option B — Windows only):
+    Install Git for Windows (https://git-scm.com/download/win).
+    Git for Windows includes a bash shell with Unix commands.
+    Open "Git Bash" and run:
+      cd "/c/Users/NnaemekaOkalla/Documents/Fiori/App"
+      mbt build -p cf
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE: App deployed but shows blank page or 404
+─────────────────────────────────────────────────────────────────────────────
+  Cause:  The webapp files were not copied into the approuter package,
+          or xs-app.json localDir is pointing to the wrong folder.
+
+  Fix:
+    1. Check that webapp/ files were actually copied during build.
+       Look at the mbt build output for the cp -r command.
+    2. Verify approuter/xs-app.json has: "localDir": "webapp"
+       (not "." or "../webapp")
+    3. Rebuild and redeploy:
+         mbt build -p cf
+         cf deploy mta_archives/product-catalog-manager_1.0.0.mtar
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE: Products load but PUT/POST/DELETE fail with 404
+─────────────────────────────────────────────────────────────────────────────
+  Cause:  API requests are going to the approuter but the /api/* routing rule
+          is not working correctly.
+
+  Fix:
+    1. Check approuter/xs-app.json has the /api/* route listed FIRST:
+         { "source": "^/api/(.*)$", "target": "/api/$1", "destination": "api-backend" }
+    2. Verify the destination name "api-backend" matches the name in mta.yaml
+       under the approuter's requires → destinations section.
+    3. Re-deploy to pick up any changes.
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE: "cf login" fails — wrong API endpoint
+─────────────────────────────────────────────────────────────────────────────
+  Fix:
+    Go to BTP Cockpit → your subaccount → Overview.
+    Copy the CF API endpoint exactly (including https://).
+    Run:  cf login -a <your-exact-endpoint>
+
+─────────────────────────────────────────────────────────────────────────────
+ISSUE: Memory quota exceeded during deployment
+─────────────────────────────────────────────────────────────────────────────
+  BTP Trial accounts have limited memory (2GB total by default).
+  The app uses: 512MB (API) + 128MB (Approuter) = 640MB total.
+  If you have other apps running in the space, you may hit the limit.
+
+  Fix:
+    List apps:  cf apps
+    Stop any apps you don't need:  cf stop <app-name>
+    Then re-deploy.
+
+─────────────────────────────────────────────────────────────────────────────
+USEFUL CF COMMANDS REFERENCE
+─────────────────────────────────────────────────────────────────────────────
+
+  cf apps                                — list all running apps and URLs
+  cf services                            — list all created services
+  cf logs product-catalog-api --recent   — view last 500 lines of backend logs
+  cf logs product-catalog-api            — stream live backend logs (Ctrl+C to stop)
+  cf restage product-catalog-api         — rebuild + restart without redeploying
+  cf restart product-catalog-api         — restart without rebuild
+  cf env product-catalog-api             — show all environment variables the app sees
+  cf delete product-catalog-api -f       — delete an app (careful!)
+  cf delete-service product-catalog-mssql -f — delete a service
+
+  REDEPLOY AFTER CODE CHANGES:
+    mbt build -p cf
+    cf deploy mta_archives/product-catalog-manager_1.0.0.mtar
+
+  VIEW APP ENVIRONMENT (confirm DB_HOST etc. are injected):
+    cf env product-catalog-api
+  Look for the "User-Provided" section to see the MSSQL credentials.
+
+
+================================================================================
+WHAT TO DO AFTER SUCCESSFUL DEPLOYMENT
+================================================================================
+
+  1. BOOKMARK YOUR APP URL
+     https://product-catalog-approuter-xxx.cfapps.us10-001.hana.ondemand.com
+
+  2. SHARE THE URL
+     Anyone with the URL can access and use the app from any browser —
+     no local setup required.
+
+  3. OPTIONAL — ADD REDIS FOR DISTRIBUTED CACHING
+     If you want caching that persists across CF app restarts and scales
+     across multiple instances, you can add a Redis service:
+       cf create-user-provided-service product-catalog-redis \
+         -p '{"hostname":"your-redis.cache.azure.com","port":"6380","password":"key","tls":true}'
+     Then add Redis to mta.yaml (see the commented-out section) and redeploy.
+
+  4. OPTIONAL — SCALE UP
+     To handle more users, increase the instance count:
+       cf scale product-catalog-api -i 2
+     This runs 2 copies of the backend simultaneously.
+
+
+================================================================================
+END OF GUIDE
+================================================================================

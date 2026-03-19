@@ -1,0 +1,110 @@
+# =============================================================================
+# mta.yaml — Multi-Target Application Descriptor
+# =============================================================================
+# This file defines the full deployment topology of the Product Catalog Manager
+# on SAP Business Technology Platform (BTP) Cloud Foundry.
+#
+# Modules:
+#   1. product-catalog-api       — Node.js REST backend
+#   2. product-catalog-approuter — SAP Approuter (serves UI + routes API calls)
+#
+# Resources (services):
+#   product-catalog-mssql        — User-provided service: MS SQL Server credentials
+#
+# NOTE: Redis is optional. Add product-catalog-redis resource and bind it to
+#       the API module only when you have a Redis endpoint available.
+# =============================================================================
+
+_schema-version: "3.1"
+ID: product-catalog-manager
+version: 1.0.0
+description: "SAP Fiori Product Catalog Manager — Full-Stack on BTP"
+
+parameters:
+  enable-parallel-deployments: true
+
+# =============================================================================
+# MODULES
+# =============================================================================
+modules:
+
+  # ── 1. Node.js Backend API ──────────────────────────────────────────────────
+  - name: product-catalog-api
+    type: nodejs
+    path: backend
+    parameters:
+      buildpack: nodejs_buildpack
+      memory: 512M
+      disk-quota: 512M
+      health-check-type: http
+      health-check-http-endpoint: /health
+    build-parameters:
+      builder: npm
+      build-result: .
+      ignore:
+        - node_modules/
+        - .env
+        - logs/
+        - "*.log"
+        - .git/
+    properties:
+      NODE_ENV: production
+      # CORS_ORIGIN is the approuter URL — resolved automatically after first deploy
+      CORS_ORIGIN: ~{product-catalog-approuter/url}
+    requires:
+      - name: product-catalog-mssql
+        parameters:
+          config:
+            DB_HOST:      "~{credentials/host}"
+            DB_PORT:      "~{credentials/port}"
+            DB_NAME:      "~{credentials/database}"
+            DB_USER:      "~{credentials/user}"
+            DB_PASSWORD:  "~{credentials/password}"
+            DB_ENCRYPT:   "true"
+            DB_TRUST_CERT: "false"
+    provides:
+      - name: product-catalog-api-url
+        properties:
+          url: ${default-url}
+
+  # ── 2. SAP Approuter — serves the SAPUI5 frontend and proxies /api/* ─────────
+  # The build step copies the webapp folder into the approuter package so that
+  # xs-app.json can serve it via localDir: "webapp".
+  - name: product-catalog-approuter
+    type: approuter.nodejs
+    path: approuter
+    parameters:
+      memory: 128M
+      disk-quota: 512M
+    build-parameters:
+      builder: custom
+      commands:
+        - npm install
+        - cp -r ../webapp ./webapp
+    requires:
+      - name: product-catalog-api-url
+        group: destinations
+        properties:
+          name:             api-backend
+          url:              "~{url}"
+          forwardAuthToken: false
+    properties:
+      SEND_XFRAMEOPTIONS: false
+    provides:
+      - name: product-catalog-approuter
+        properties:
+          url: ${default-url}
+
+# =============================================================================
+# RESOURCES (CF Services)
+# =============================================================================
+resources:
+
+  # MS SQL Server — user-provided service (must point to a cloud-accessible DB)
+  # Create BEFORE deploying:
+  #
+  #   cf create-user-provided-service product-catalog-mssql \
+  #     -p '{"host":"your-server.database.windows.net","port":"1433","database":"ProductCatalogDB","user":"your-user","password":"YourPassword"}'
+  #
+  - name: product-catalog-mssql
+    type: org.cloudfoundry.user-provided-service

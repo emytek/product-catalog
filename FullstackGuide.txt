@@ -1,0 +1,793 @@
+================================================================================
+  PRODUCT CATALOG MANAGER — FULLSTACK GUIDE
+  Node.js + MS SQL Server + SAP SAPUI5 + SAP BTP Cloud Foundry
+================================================================================
+  Version : 1.0.0
+  Date    : 2026-03-17
+  Author  : Product Catalog Manager Implementation
+================================================================================
+
+This guide is the single source of truth for understanding, installing, running,
+and deploying every component of the fullstack application.  Read it from top to
+bottom for a first-time setup.  Individual sections can be consulted independently
+after that.
+
+────────────────────────────────────────────────────────────────────────────────
+TABLE OF CONTENTS
+────────────────────────────────────────────────────────────────────────────────
+  1.  Architecture Overview
+  2.  Repository / Folder Structure
+  3.  Database Setup (Microsoft SQL Server)
+  4.  Backend Installation & Local Run
+  5.  Environment Variables Reference
+  6.  API Endpoints Reference
+  7.  Frontend Integration — How It Works
+  8.  BTP Cloud Foundry Deployment (Step-by-Step)
+  9.  Advanced Concepts Explained
+      9a.  Connection Pooling
+      9b.  Two-Level Caching
+      9c.  Async Queue Processing
+      9d.  Database Normalisation
+      9e.  Horizontal Scaling (Cluster)
+      9f.  Payload Optimisation
+      9g.  Graceful Shutdown
+ 10.  SOLID & DRY Principles Applied
+ 11.  Troubleshooting
+
+────────────────────────────────────────────────────────────────────────────────
+1. ARCHITECTURE OVERVIEW
+────────────────────────────────────────────────────────────────────────────────
+
+  ┌─────────────────────────────────────────────────────────────────────────┐
+  │                         SAP BTP Cloud Foundry                          │
+  │                                                                         │
+  │  ┌────────────────┐       /api/*      ┌────────────────────────────┐  │
+  │  │  SAP Approuter │ ──────────────────▶│  Node.js REST API          │  │
+  │  │  (port 80/443) │                   │  Express + mssql + Bull     │  │
+  │  │  xs-app.json   │                   │  (port 3000 / CF PORT)      │  │
+  │  └───────┬────────┘                   └──────────────┬─────────────┘  │
+  │          │ all other                                  │                │
+  │          │ requests                                   │ SQL            │
+  │          ▼                                            ▼                │
+  │  ┌────────────────┐                   ┌────────────────────────────┐  │
+  │  │  SAPUI5 Static │                   │  Microsoft SQL Server      │  │
+  │  │  Frontend Files│                   │  (Azure SQL / external)    │  │
+  │  │  (index.html)  │                   │  User-Provided CF Service  │  │
+  │  └────────────────┘                   └────────────────────────────┘  │
+  │                                                                         │
+  │                              Optional:                                  │
+  │                       ┌────────────────────┐                           │
+  │                       │  Redis             │                           │
+  │                       │  Cache + Bull Queue│                           │
+  │                       └────────────────────┘                           │
+  └─────────────────────────────────────────────────────────────────────────┘
+
+Request flow for "Open Product List":
+  1. User browser → Approuter (routes /api/* to backend, /* to frontend)
+  2. Frontend SAPUI5 app boots → Component.js calls GET /api/v1/products/catalog
+  3. Express receives request → rate limiter → cache check (L1 or L2)
+  4. Cache MISS → product.controller → product.service → product.repository
+  5. Repository executes SELECT on vw_ProductFull view (SQL Server)
+  6. Result mapped to DTO → cached → sent as JSON
+  7. Frontend SAPUI5 receives { products: [...] } → sets it on JSONModel
+  8. All views (Home, ProductList) re-render automatically via data binding
+
+────────────────────────────────────────────────────────────────────────────────
+2. REPOSITORY / FOLDER STRUCTURE
+────────────────────────────────────────────────────────────────────────────────
+
+  App/
+  ├── backend/                          ← Node.js backend (this is the API)
+  │   ├── database/
+  │   │   ├── migrations/
+  │   │   │   ├── 001_initial_schema.sql     ← Tables & constraints
+  │   │   │   └── 002_indexes_procedures.sql ← Indexes, view, stored procs
+  │   │   └── seeds/
+  │   │       └── 001_seed_data.sql          ← 25 demo products
+  │   ├── src/
+  │   │   ├── api/v1/
+  │   │   │   ├── routes/
+  │   │   │   │   ├── products.routes.js
+  │   │   │   │   ├── categories.routes.js
+  │   │   │   │   └── suppliers.routes.js
+  │   │   │   └── index.js              ← Mount all v1 routes
+  │   │   ├── config/
+  │   │   │   ├── environment.js        ← All env-var access + CF VCAP parser
+  │   │   │   ├── database.js           ← mssql connection pool singleton
+  │   │   │   ├── cache.js              ← Two-level cache (NodeCache + Redis)
+  │   │   │   └── queue.js              ← Bull queue (or in-process fallback)
+  │   │   ├── controllers/
+  │   │   │   ├── product.controller.js
+  │   │   │   ├── category.controller.js
+  │   │   │   └── supplier.controller.js
+  │   │   ├── middleware/
+  │   │   │   ├── error.middleware.js   ← Global error handler
+  │   │   │   ├── validation.middleware.js ← Joi schema validation
+  │   │   │   ├── cache.middleware.js   ← HTTP-level response caching
+  │   │   │   └── rateLimiter.middleware.js
+  │   │   ├── repositories/
+  │   │   │   ├── BaseRepository.js     ← Pool access + transaction helper
+  │   │   │   ├── product.repository.js ← All product SQL operations
+  │   │   │   ├── category.repository.js
+  │   │   │   └── supplier.repository.js
+  │   │   ├── services/
+  │   │   │   ├── product.service.js    ← Business logic + cache + queue
+  │   │   │   ├── category.service.js
+  │   │   │   └── supplier.service.js
+  │   │   ├── utils/
+  │   │   │   ├── logger.js             ← Winston structured logger
+  │   │   │   ├── ApiResponse.js        ← Consistent response envelope
+  │   │   │   ├── errors.js             ← Custom error class hierarchy
+  │   │   │   └── pagination.js         ← Pagination math utilities
+  │   │   ├── workers/
+  │   │   │   └── product.worker.js     ← Background job processors
+  │   │   └── app.js                    ← Express app assembly
+  │   ├── .env.example                  ← Template for .env
+  │   ├── package.json
+  │   └── server.js                     ← Entry point (cluster + server)
+  │
+  ├── webapp/                           ← Existing SAPUI5 frontend (unchanged)
+  │   ├── utils/
+  │   │   └── ApiService.js             ← NEW: central HTTP client
+  │   ├── controller/
+  │   │   ├── Component.js              ← UPDATED: loads from API
+  │   │   ├── ProductForm.controller.js ← UPDATED: save calls API
+  │   │   ├── ProductDetail.controller.js ← UPDATED: delete calls API
+  │   │   └── ProductList.controller.js ← UPDATED: delete calls API
+  │   └── ...                           ← All other files unchanged
+  │
+  ├── approuter/                        ← SAP Approuter (BTP only)
+  │   ├── package.json
+  │   └── xs-app.json                   ← URL routing rules
+  │
+  ├── mta.yaml                          ← BTP Multi-Target App descriptor
+  └── FullstackGuide.txt                ← This file
+
+────────────────────────────────────────────────────────────────────────────────
+3. DATABASE SETUP (MICROSOFT SQL SERVER)
+────────────────────────────────────────────────────────────────────────────────
+
+STEP 3.1 — Install SQL Server (local development)
+  Option A: SQL Server Developer Edition (free, Windows)
+    https://www.microsoft.com/en-us/sql-server/sql-server-downloads
+  Option B: Docker (any OS)
+    docker run -e "ACCEPT_EULA=Y" -e "SA_PASSWORD=YourStrong@Passw0rd" \
+      -p 1433:1433 --name sql-catalog mcr.microsoft.com/mssql/server:2022-latest
+
+  Verify connection:
+    sqlcmd -S localhost -U sa -P "YourStrong@Passw0rd" -Q "SELECT @@VERSION"
+
+STEP 3.2 — Connect via SQL Server Management Studio (SSMS) or Azure Data Studio
+  Server:   localhost,1433
+  Login:    sa
+  Password: YourStrong@Passw0rd
+
+STEP 3.3 — Run the migrations in order
+
+  File 1: backend/database/migrations/001_initial_schema.sql
+    Creates:
+      - ProductCatalogDB database
+      - Categories table (5 rows after seed)
+      - Suppliers table
+      - Tags table
+      - Products table (main entity, ~20 columns with CHECK constraints)
+      - ProductTags junction table (many-to-many Products ↔ Tags)
+      - ProductIDSequence table (generates P001, P002, …)
+
+  File 2: backend/database/migrations/002_indexes_procedures.sql
+    Creates:
+      - 9 non-clustered indexes for filter/sort performance
+      - vw_ProductFull view (denormalized read model with STRING_AGG for tags)
+      - sp_GetNextProductID stored procedure (atomic ID generation)
+      - sp_GetProductStats stored procedure (KPI aggregates in one pass)
+      - sp_SyncProductIDSequence stored procedure (post-bulk-load sync)
+
+  File 3: backend/database/seeds/001_seed_data.sql
+    Inserts:
+      - 5 Categories
+      - 28 Suppliers
+      - All tags
+      - 25 Products (P001–P025)
+      - All ProductTags associations
+      - Syncs ProductIDSequence to 25 (next insert will get P026)
+
+  How to run all three in SSMS:
+    File > Open > File…  → select the .sql file
+    Press F5 or click Execute
+    Repeat for all three files in order (001, 002, 003)
+
+  Using sqlcmd:
+    sqlcmd -S localhost -U sa -P "YourStrong@Passw0rd" \
+      -i backend/database/migrations/001_initial_schema.sql
+    sqlcmd -S localhost -U sa -P "YourStrong@Passw0rd" \
+      -i backend/database/migrations/002_indexes_procedures.sql
+    sqlcmd -S localhost -U sa -P "YourStrong@Passw0rd" \
+      -i backend/database/seeds/001_seed_data.sql
+
+STEP 3.4 — Verify
+  Run this to check: SELECT COUNT(*) FROM ProductCatalogDB.dbo.Products;
+  Expected result: 25
+
+────────────────────────────────────────────────────────────────────────────────
+4. BACKEND INSTALLATION & LOCAL RUN
+────────────────────────────────────────────────────────────────────────────────
+
+STEP 4.1 — Navigate to the backend folder
+  cd /home/user/projects/App/backend           (BAS terminal)
+  cd C:\Users\NnaemekaOkalla\Documents\Fiori\App\backend   (Windows)
+
+STEP 4.2 — Create your .env file
+  cp .env.example .env
+
+  Then open .env and fill in your SQL Server credentials:
+    DB_HOST=localhost
+    DB_PORT=1433
+    DB_NAME=ProductCatalogDB
+    DB_USER=sa
+    DB_PASSWORD=YourStrong@Passw0rd
+    DB_TRUST_CERT=true          ← true for local dev, false for Azure SQL
+    DB_ENCRYPT=false            ← true for Azure SQL
+    NODE_ENV=development
+    PORT=3000
+    CORS_ORIGIN=http://localhost:8080
+
+  Leave the Redis lines empty if you do not have Redis — the app will use
+  the in-process cache (node-cache) automatically.
+
+STEP 4.3 — Install Node.js dependencies
+  npm install
+
+  This installs all packages listed in package.json (express, mssql, winston,
+  joi, helmet, cors, bull, node-cache, etc.)
+
+STEP 4.4 — Start the backend server
+  Development (auto-restart on file changes):
+    npm run dev
+
+  Production:
+    npm start
+
+  Expected output:
+    [WORKER 12345] Connecting to database...
+    [DB] Pool connected to localhost:1433/ProductCatalogDB (pool max=10)
+    [WORKER 12345] Initialising cache...
+    [CACHE] Redis not configured — using in-process L1 cache only.
+    [WORKER] Product workers registered.
+    [WORKER 12345] HTTP server listening on port 3000 (development)
+
+STEP 4.5 — Test the API
+  Health check:
+    curl http://localhost:3000/health
+
+  Get all products (full catalogue):
+    curl http://localhost:3000/api/v1/products/catalog
+
+  Get paginated product list:
+    curl "http://localhost:3000/api/v1/products?page=1&limit=10&category=Electronics"
+
+  Get single product:
+    curl http://localhost:3000/api/v1/products/P001
+
+  Create a product:
+    curl -X POST http://localhost:3000/api/v1/products \
+      -H "Content-Type: application/json" \
+      -d '{"ProductName":"Test Product","Category":"Electronics","Price":99.99,"Stock":50}'
+
+  Delete a product:
+    curl -X DELETE http://localhost:3000/api/v1/products/P001
+
+STEP 4.6 — Start the frontend (SAPUI5)
+  Open a second terminal in the App root folder:
+    cd /home/user/projects/App
+    npm install          (if not done already)
+    npm start            ← runs ui5 serve, opens at http://localhost:8080
+
+  The frontend will:
+  • Load index.html (SAPUI5 bootstrap)
+  • Boot Component.js
+  • Component.js calls GET http://localhost:3000/api/v1/products/catalog
+  • If the API is up → loads products from the database
+  • If the API is down → falls back to local products.json (mock data)
+
+STEP 4.7 — Verify full integration
+  Open browser → http://localhost:8080
+  • Home page should show 7 KPI tiles (Total, Active, etc.) and the featured carousel
+  • Product List should show 25 products
+  • Create a new product → it should appear in the list immediately
+  • Delete a product → it should disappear from the list
+
+────────────────────────────────────────────────────────────────────────────────
+5. ENVIRONMENT VARIABLES REFERENCE
+────────────────────────────────────────────────────────────────────────────────
+
+  Variable                  Required  Default          Description
+  ─────────────────────     ────────  ───────          ──────────────────────────
+  NODE_ENV                  No        development      "production" in BTP
+  PORT                      No        3000             HTTP port (CF overrides)
+  API_VERSION               No        v1               URL prefix
+  CORS_ORIGIN               No        localhost:8080   Comma-separated origins
+
+  DB_HOST                   YES       —                SQL Server hostname
+  DB_PORT                   No        1433             SQL Server port
+  DB_NAME                   YES       —                Database name
+  DB_USER                   YES       —                SQL login username
+  DB_PASSWORD               YES       —                SQL login password
+  DB_ENCRYPT                No        false            true for Azure SQL
+  DB_TRUST_CERT             No        true             false for Azure SQL
+  DB_POOL_MAX               No        10               Max pool connections
+  DB_POOL_MIN               No        2                Min (pre-warmed) connections
+  DB_POOL_IDLE_TIMEOUT_MS   No        30000            ms before idle conn released
+  DB_POOL_ACQUIRE_TIMEOUT_MS No       15000            ms to wait for free conn
+
+  REDIS_HOST                No        —                Redis hostname (optional)
+  REDIS_PORT                No        6379             Redis port
+  REDIS_PASSWORD            No        —                Redis auth
+  REDIS_TLS                 No        false            true for Azure Cache for Redis
+
+  CACHE_TTL_SECONDS         No        300              Default cache TTL (5 min)
+  CACHE_TTL_CATALOG_SECONDS No        600              Catalog endpoint TTL (10 min)
+
+  RATE_LIMIT_WINDOW_MS      No        900000           Rate limit window (15 min)
+  RATE_LIMIT_MAX_REQUESTS   No        200              Max requests per window
+
+  LOG_LEVEL                 No        debug/info       Winston log level
+  LOG_DIR                   No        logs             Log file directory
+
+────────────────────────────────────────────────────────────────────────────────
+6. API ENDPOINTS REFERENCE
+────────────────────────────────────────────────────────────────────────────────
+
+  BASE URL (development):    http://localhost:3000/api/v1
+  BASE URL (BTP production): https://<your-approuter>.cfapps.eu10.hana.ondemand.com/api/v1
+
+  ── HEALTH ────────────────────────────────────────────────────────────────────
+  GET  /health
+    No auth, no rate limit.
+    Returns: { status: "UP"|"DEGRADED", database: "connected"|"unreachable", uptime: 123 }
+
+  ── PRODUCTS ──────────────────────────────────────────────────────────────────
+  GET  /products/catalog
+    Full product array with no pagination.
+    Used by SAPUI5 Component.js on startup.
+    Returns: { success: true, data: { products: [...] } }
+    Cache: 10 minutes (TTL_CATALOG_SECONDS)
+
+  GET  /products/stats
+    KPI aggregates for home-page tiles.
+    Returns: { success: true, data: { totalProducts, activeProducts, ... } }
+    Cache: 5 minutes
+
+  GET  /products
+    Query params (all optional):
+      search      string   Text search across name, supplier, category, sub-category
+      category    string   Exact: Electronics | Furniture | Clothing | Food & Beverage | Office Supplies
+      status      string   Active | Inactive | Discontinued
+      featured    boolean  true | false
+      minPrice    number   Price range lower bound
+      maxPrice    number   Price range upper bound
+      sortBy      string   ProductName | Price | Stock | Rating | Category | CreatedAt
+      sortOrder   string   ASC | DESC  (default ASC)
+      page        integer  1-based page number (default 1)
+      limit       integer  Items per page, max 200 (default 20)
+    Returns: { success: true, data: [...], meta: { page, limit, totalCount, totalPages, hasNext, hasPrev } }
+
+  GET  /products/:id
+    Returns a single product object.
+    :id must match /^P\d{1,10}$/ (e.g. P001)
+
+  POST /products
+    Body (JSON, required fields marked *):
+      ProductName*  string   max 100
+      Category*     string   one of the 5 valid categories
+      Price*        number   >= 0
+      Stock*        integer  >= 0
+      SubCategory   string   optional
+      Description   string   max 2000
+      Currency      string   USD | EUR | GBP  (default USD)
+      Unit          string   EA | KG | L | M  (default EA)
+      Status        string   Active | Inactive | Discontinued (default Active)
+      Supplier      string   max 100
+      Tags          string[] array of tag words
+      Featured      boolean  default false
+      Discount      integer  0–100, default 0
+      Weight        string   max 30
+      Dimensions    string   max 60
+    Returns 201 with the created product (including generated ProductID)
+
+  PUT  /products/:id
+    Same body as POST but all fields optional.
+    Returns 200 with the full updated product.
+
+  DELETE /products/:id
+    Returns: { success: true, data: { message: "Product P001 deleted." } }
+
+  DELETE /products
+    Bulk delete.
+    Body: { ids: ["P001", "P002", "P003"] }
+    Returns: { success: true, data: { deleted: 3, message: "3 product(s) deleted." } }
+
+  ── CATEGORIES ────────────────────────────────────────────────────────────────
+  GET  /categories
+    Returns all 5 active categories.
+
+  GET  /categories/summary
+    Returns each category with its productCount and activeCount.
+
+  ── SUPPLIERS ─────────────────────────────────────────────────────────────────
+  GET  /suppliers
+    Returns all suppliers.
+
+  ── RESPONSE ENVELOPE ─────────────────────────────────────────────────────────
+  Every response follows this shape:
+    Success:  { "success": true,  "data": <payload>, "meta": <optional> }
+    Error:    { "success": false, "error": { "code": "...", "message": "...", "details": [...] } }
+
+  Common HTTP error codes:
+    400  BAD_REQUEST       — malformed body or invalid parameter
+    404  NOT_FOUND         — product / resource does not exist
+    409  CONFLICT          — duplicate ID or constraint violation
+    422  VALIDATION_ERROR  — Joi schema failure (includes details array)
+    429  RATE_LIMIT_EXCEEDED
+    500  INTERNAL_ERROR    — unexpected server error
+
+────────────────────────────────────────────────────────────────────────────────
+7. FRONTEND INTEGRATION — HOW IT WORKS
+────────────────────────────────────────────────────────────────────────────────
+
+Four files were changed and one new file was added.
+
+  ── webapp/utils/ApiService.js  (NEW) ─────────────────────────────────────────
+  A SAPUI5 AMD module (sap.ui.define) that wraps the native fetch() API.
+  Every API operation is a named method: getCatalog(), createProduct(), etc.
+  The BASE_URL is empty in production (same-origin via approuter) and set to
+  http://localhost:3000 in development via window.API_BASE_URL.
+
+  To configure the API URL in development, add this line to index.html
+  BEFORE the SAPUI5 bootstrap script tag:
+    <script>window.API_BASE_URL = "http://localhost:3000";</script>
+
+  ── webapp/Component.js  (UPDATED) ────────────────────────────────────────────
+  The products model is no longer loaded from the manifest.json URL setting.
+  Instead:
+    1. An empty JSONModel({ products: [] }) is created immediately
+    2. ApiService.getCatalog() is called asynchronously
+    3. On success: model.setData({ products: [...] }) populates the model
+    4. On failure: falls back to loading the local products.json mock file
+
+  The rest of the frontend (Home, ProductList, ProductDetail) is 100% unchanged —
+  they all still read from the "products" JSONModel the same way as before.
+
+  ── ProductForm.controller.js  (UPDATED) ──────────────────────────────────────
+  onSave() now calls:
+    • ApiService.createProduct(payload) on POST → updates local model on success
+    • ApiService.updateProduct(id, payload) on PUT → updates local model on success
+  On failure: a MessageBox.error shows the API error message.
+
+  ── ProductDetail.controller.js  (UPDATED) ────────────────────────────────────
+  onDeleteProduct() now calls:
+    • ApiService.deleteProduct(id) → removes from local model on success
+
+  ── ProductList.controller.js  (UPDATED) ──────────────────────────────────────
+  _deleteProduct() and onDeleteSelected() now call:
+    • ApiService.deleteProduct(id) or ApiService.deleteManyProducts(ids)
+  On success: removes from local model and re-applies filters.
+
+  ── Why keep the local JSONModel? ─────────────────────────────────────────────
+  The SAPUI5 architecture uses a JSONModel as the in-process state store.
+  After a successful API write, we update the model so the UI re-renders
+  without needing a full page reload.  This gives the best UX (instant feedback)
+  while keeping the database as the source of truth.  On the next navigation to
+  the home or product list, the model is refreshed from the API.
+
+────────────────────────────────────────────────────────────────────────────────
+8. BTP CLOUD FOUNDRY DEPLOYMENT — STEP BY STEP
+────────────────────────────────────────────────────────────────────────────────
+
+PREREQUISITES
+  • SAP BTP Trial or Production account (subaccount + Cloud Foundry environment)
+  • BAS open with the App project
+  • CF CLI installed:  cf --version
+  • MTA Build Tool:    mbt --version   (install: npm install -g mbt)
+  • External MS SQL Server accessible from BTP (e.g. Azure SQL, AWS RDS MSSQL)
+  • (Optional) Redis accessible from BTP (e.g. Azure Cache for Redis)
+
+STEP 8.1 — Log in to Cloud Foundry from BAS terminal
+  cf login -a https://api.cf.eu10.hana.ondemand.com    ← adjust region
+  (Enter your SAP BTP credentials when prompted)
+
+  Verify: cf target
+  Expected: org = <your-org>   space = <your-space>
+
+STEP 8.2 — Create the MS SQL Server user-provided service
+  Replace with your actual Azure SQL (or other) MSSQL credentials:
+    cf create-user-provided-service product-catalog-mssql \
+      -p '{"host":"yourserver.database.windows.net","port":"1433","database":"ProductCatalogDB","user":"cataloguser","password":"YourP@ssword","encrypt":"true","trustServerCertificate":"false"}'
+
+STEP 8.3 — (Optional) Create the Redis user-provided service
+  If you have Redis:
+    cf create-user-provided-service product-catalog-redis \
+      -p '{"hostname":"yourredis.redis.cache.windows.net","port":"6380","password":"key==","tls":"true"}'
+
+  If you do NOT have Redis, the backend falls back to in-process node-cache
+  automatically.  Skip this step and remove the redis requires/resources from
+  mta.yaml before building.
+
+STEP 8.4 — Build the MTA archive
+  From the App root directory in BAS terminal:
+    mbt build -p cf
+
+  This produces:
+    mta_archives/product-catalog-manager_1.0.0.mtar
+
+STEP 8.5 — Deploy to Cloud Foundry
+    cf deploy mta_archives/product-catalog-manager_1.0.0.mtar
+
+  Watch the deploy log — it will:
+  • Push the Node.js backend app
+  • Push the SAPUI5 static files
+  • Push the Approuter
+  • Bind services to the backend app
+  • Start all three apps
+
+  This takes 3–8 minutes on a first deploy.
+
+STEP 8.6 — Verify deployment
+  cf apps
+  Expected output (all status = started):
+    product-catalog-api       started    1/1   512M   512M
+    product-catalog-ui        started    1/1   64M    128M
+    product-catalog-approuter started    1/1   128M   256M
+
+  Get the approuter URL:
+    cf app product-catalog-approuter | grep routes
+    e.g. product-catalog-approuter.cfapps.eu10.hana.ondemand.com
+
+  Open that URL in a browser — you should see the Product Catalog Manager app.
+
+STEP 8.7 — Run database migrations on Azure SQL
+  Connect to Azure SQL using SSMS (Azure Portal > SQL Server > Connect):
+    Run migrations 001 and 002 in SSMS, then run seed 001.
+  Alternatively, use sqlcmd from your local machine with Azure SQL firewall open.
+
+STEP 8.8 — Confirm full end-to-end
+  Browser → approuter URL → Product Catalog Manager loads
+  Products appear → loaded from Azure SQL via Node.js API
+  Create / Edit / Delete works → changes persist in Azure SQL
+
+STEP 8.9 — CI/CD (optional)
+  Add to your BAS/SAP CI/CD pipeline:
+    mbt build -p cf
+    cf deploy mta_archives/product-catalog-manager_1.0.0.mtar --strategy rolling
+
+  The --strategy rolling flag ensures zero-downtime deployments.
+
+────────────────────────────────────────────────────────────────────────────────
+9. ADVANCED CONCEPTS EXPLAINED
+────────────────────────────────────────────────────────────────────────────────
+
+9a. CONNECTION POOLING  (backend/src/config/database.js)
+─────────────────────────────────────────────────────────
+Problem: Opening a new TCP connection + SQL Server authentication handshake
+takes ~50–200ms.  A product list request that needs 3 queries would wait 150–600ms
+just on connection overhead.
+
+Solution: A ConnectionPool opens a fixed set of connections at startup and keeps
+them alive.  Each request borrows an already-open connection from the pool,
+uses it, then returns it.  No connection overhead on individual requests.
+
+Key settings:
+  pool.max = 10    → Never hold more than 10 connections (respects DB license limits)
+  pool.min = 2     → Always keep 2 connections ready (first requests don't cold-start)
+  idleTimeoutMillis = 30 s → Release idle connections after 30 s (avoids connection leak)
+  acquireTimeoutMillis = 15 s → Fail fast if the pool is exhausted (no request hangs forever)
+
+The pool is a singleton:  getPool() returns the same instance throughout the
+app lifetime.  It is created once in server.js and closed on SIGTERM.
+
+9b. TWO-LEVEL CACHING  (backend/src/config/cache.js)
+────────────────────────────────────────────────────
+Problem: Calling SELECT on vw_ProductFull for every single page load is wasteful
+when products rarely change.
+
+Solution: Cache the DB result so subsequent requests are served from memory.
+
+Level 1 — NodeCache (in-process memory):
+  Zero latency (no network hop).  Invalidated when the process exits.
+  Works perfectly on a single CF instance.
+
+Level 2 — Redis (optional, cross-instance):
+  When CF scales the backend to multiple instances (horizontal scaling), each
+  instance has its own L1 cache — they could serve stale data from different caches.
+  Redis provides a single shared cache all instances read/write.  L1 is a local
+  front-end to L2.
+
+Cache key strategy:
+  "catalog"               → full product array (TTL 10 min)
+  "product:P001"          → single product (TTL 5 min)
+  "products:list:<params>"→ per-query paginated results (TTL 5 min)
+  "stats"                 → KPI aggregates (TTL 5 min)
+
+Invalidation: On every write (create/update/delete), the service layer calls
+cache.delByPrefix("products:list:") and cache.del("catalog") to ensure the
+next read gets fresh data from the database.
+
+9c. ASYNC QUEUE PROCESSING  (backend/src/config/queue.js, workers/product.worker.js)
+─────────────────────────────────────────────────────────────────────────────────────
+Problem: After creating a product, the stats cache should be invalidated and
+refreshed.  If this happens synchronously in the request handler, it adds latency
+to the user's save request.
+
+Solution: The service layer "fires and forgets" a job onto a Bull queue.
+The HTTP response is sent immediately.  A background worker processes the job
+asynchronously after the response has already been delivered.
+
+Jobs defined:
+  "refresh-stats"  → clears stats cache and re-warms it from DB
+  "audit-log"      → logs CREATED/UPDATED/DELETED events (extend to DB table)
+
+Bull uses Redis as its job store.  If Redis is not configured, the app uses
+an in-process EventEmitter queue that runs jobs synchronously in the same
+process (acceptable for development; use Bull + Redis in production).
+
+9d. DATABASE NORMALISATION  (migrations/001_initial_schema.sql)
+────────────────────────────────────────────────────────────────
+The schema follows the first three normal forms (1NF, 2NF, 3NF):
+
+1NF: All columns hold atomic values (no repeated groups, no arrays in columns).
+     Tags are stored in a separate Tags table and linked via ProductTags.
+
+2NF: Every non-key attribute depends on the whole primary key.
+     CategoryName (a non-key attribute of Categories) depends only on CategoryID —
+     not partly on ProductID.  This was achieved by extracting Categories into
+     its own table.
+
+3NF: No transitive dependencies.
+     SupplierName does NOT live in the Products table (which would create a
+     transitive dependency ProductID → SupplierName → SupplierID).  It lives
+     in the Suppliers table referenced by FK.
+
+Benefits realised:
+  • Rename a category in one row, and all 50+ products in that category reflect it
+  • Consistent tag spelling (each tag exists once in the Tags table)
+  • Supplier contact details (email, phone, country) live in one place
+
+The vw_ProductFull view re-joins all tables into the flat DTO shape the frontend
+needs, so the application layer never writes complex JOIN queries.
+
+9e. HORIZONTAL SCALING (Cluster)  (backend/server.js)
+──────────────────────────────────────────────────────
+Problem: Node.js is single-threaded.  A 4-core CF container running a single
+Node.js process wastes 75% of its CPU.
+
+Solution: Node.js cluster module forks one worker process per CPU core.
+The OS distributes incoming TCP connections across all workers in round-robin.
+Each worker is an independent Express server.
+
+In production with a 2-core CF instance (512M memory):
+  Master process: forks 2 workers, monitors them, restarts on crash
+  Worker 1:       handles ~50% of requests
+  Worker 2:       handles ~50% of requests
+
+Shared state (cache, sessions) must use Redis — workers share nothing in memory.
+The connection pool in each worker is independent (10 connections × 2 workers = 20 total).
+
+9f. PAYLOAD OPTIMISATION  (backend/src/app.js)
+───────────────────────────────────────────────
+Several techniques reduce the bytes sent over the network:
+
+  compression middleware: Every response is gzip-compressed.
+    A 25-product JSON payload (~12 KB) compresses to ~2 KB → 83% reduction.
+    The threshold of 512 bytes means tiny responses are not compressed (no benefit).
+
+  Projection in the view (vw_ProductFull): Only the columns the frontend needs
+    are returned.  Internal FK IDs (CategoryID, SupplierID, TagID) are never
+    sent to the client.
+
+  Paginated list endpoint: Clients fetch 20 products at a time, not all 500+.
+    The catalog endpoint (no pagination) is cached aggressively at 10 minutes.
+
+  HTTP caching headers: X-Cache: HIT | MISS tells the client/CDN whether the
+    response came from cache so it can make informed caching decisions.
+
+9g. GRACEFUL SHUTDOWN  (backend/server.js)
+──────────────────────────────────────────
+When CF scales down an instance or rolls a new deployment, it sends SIGTERM
+to the running process.  If the process exits immediately, in-flight requests
+get a TCP RST — a broken connection for the end user.
+
+The shutdown sequence:
+  1. server.close()   → stop accepting NEW connections; existing ones continue
+  2. closeQueues()    → drain Bull queue (wait for in-flight jobs)
+  3. closePool()      → close all DB connections cleanly
+  4. process.exit(0)  → clean exit
+
+A 10-second timeout forces exit if anything hangs.  This gives in-flight
+requests (typically < 1 s) time to complete before the process ends.
+
+────────────────────────────────────────────────────────────────────────────────
+10. SOLID & DRY PRINCIPLES APPLIED
+────────────────────────────────────────────────────────────────────────────────
+
+S — Single Responsibility
+  • environment.js: owns all env-var access.  No other module calls process.env.
+  • database.js:    owns the connection pool.  No module does new ConnectionPool() itself.
+  • controllers:    only parse HTTP and call services.  No SQL, no business logic.
+  • services:       only business logic.  No SQL, no req/res.
+  • repositories:   only SQL.  No business logic, no HTTP concerns.
+
+O — Open/Closed
+  • BaseRepository can be extended (new repository adds methods without modifying Base).
+  • New routes can be added to api/v1/index.js without changing existing routes.
+
+L — Liskov Substitution
+  • InProcessQueue (in queue.js) is a drop-in substitute for Bull queue — both
+    implement .add() and .process() so the rest of the app is unaffected.
+
+I — Interface Segregation
+  • The cache module exposes get/set/del/delByPrefix/flush — callers only import
+    what they need.  Redis vs NodeCache detail is hidden behind this interface.
+
+D — Dependency Inversion
+  • product.service.js depends on the productRepo interface (findAll, insert, etc.),
+    not on the mssql ConnectionPool directly.  Swapping MSSQL for PostgreSQL
+    requires changing only the repository, not the service.
+
+DRY — Don't Repeat Yourself
+  • pagination.js: parsePagination() and buildMeta() are called from the service;
+    not copy-pasted into each controller.
+  • ApiResponse.js: every route uses success()/created()/notFound() etc.;
+    the JSON envelope is constructed in one place only.
+  • Validation schemas (validation.middleware.js): defined once, referenced by
+    multiple routes.
+  • rowToDto() in product.repository.js: the row-to-DTO mapping is one function,
+    called from every query — not duplicated per query method.
+
+────────────────────────────────────────────────────────────────────────────────
+11. TROUBLESHOOTING
+────────────────────────────────────────────────────────────────────────────────
+
+BACKEND ISSUE: "Required environment variable DB_HOST is not set"
+  → You ran the backend without a .env file.
+  → Copy .env.example to .env and fill in the DB credentials (Section 4.2).
+
+BACKEND ISSUE: "ConnectionError: Failed to connect to localhost:1433 in 15000ms"
+  → SQL Server is not running, or the host/port/firewall is wrong.
+  → Verify: sqlcmd -S localhost -U sa -P "YourPassword" -Q "SELECT 1"
+
+BACKEND ISSUE: "Login failed for user 'sa'"
+  → Wrong DB_USER or DB_PASSWORD in .env.
+  → SA login may be disabled — enable it in SSMS > Security > Logins > sa.
+
+FRONTEND ISSUE: "Products not loading, spinner shows forever"
+  → Open browser DevTools > Network tab.
+  → Check if GET /api/v1/products/catalog returned an error.
+  → If 404: backend is not running or wrong CORS_ORIGIN.
+  → The fallback loads products.json — verify that file exists in BAS.
+
+FRONTEND ISSUE: "Create Product — API error: Category 'Electronics' does not exist"
+  → The seed data was not run on the database.
+  → Run 001_seed_data.sql (Section 3.3).
+
+CORS ERROR in browser console: "blocked by CORS policy"
+  → Backend CORS_ORIGIN does not include the frontend origin.
+  → In .env, set CORS_ORIGIN=http://localhost:8080 (or your BAS preview URL).
+  → In BTP, set CORS_ORIGIN to the approuter URL.
+
+BTP DEPLOYMENT: "cf deploy failed — service product-catalog-mssql not found"
+  → You must create the user-provided service before deploying (Section 8.2).
+
+BTP DEPLOYMENT: "App crashed — check logs with cf logs product-catalog-api --recent"
+  → Check for missing env vars or DB connection failures in the logs.
+
+CACHE ISSUE: "Old products still showing after delete"
+  → The catalog cache TTL is 10 minutes.
+  → Force refresh: call DELETE /api/v1/products/:id — this invalidates the cache.
+  → In development you can lower CACHE_TTL_CATALOG_SECONDS=10 in .env.
+
+QUEUE ISSUE: "Bull: Missing lock for job XXX"
+  → Redis connection dropped.  Bull requires a stable Redis connection.
+  → If Redis is not available, remove REDIS_HOST from .env — app uses InProcessQueue.
+
+================================================================================
+  END OF GUIDE
+================================================================================

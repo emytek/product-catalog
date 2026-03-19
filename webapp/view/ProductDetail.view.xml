@@ -1,0 +1,309 @@
+<mvc:View
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:f="sap.f"
+    xmlns:core="sap.ui.core"
+    xmlns:form="sap.ui.layout.form"
+    xmlns:layout="sap.ui.layout"
+    controllerName="com.demo.productcatalog.controller.ProductDetail">
+
+    <f:DynamicPage id="productDetailPage" headerExpanded="true" toggleHeaderOnTitleClick="true">
+
+        <!-- =========================================================== -->
+        <!-- DYNAMIC PAGE TITLE                                            -->
+        <!-- =========================================================== -->
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading>
+                    <Title text="{products>ProductName}" level="H1" />
+                </f:heading>
+                <f:snappedHeading>
+                    <Title text="{products>ProductName}" level="H2" />
+                </f:snappedHeading>
+
+                <f:actions>
+                    <Button
+                        text="{i18n>buttonEdit}"
+                        type="Emphasized"
+                        icon="sap-icon://edit"
+                        press=".onEditProduct" />
+                    <Button
+                        text="{i18n>buttonDelete}"
+                        type="Reject"
+                        icon="sap-icon://delete"
+                        press=".onDeleteProduct" />
+                    <Button
+                        text="{i18n>buttonBack}"
+                        icon="sap-icon://nav-back"
+                        type="Default"
+                        press=".onNavBack" />
+                </f:actions>
+                <f:navigationActions>
+                    <Button
+                        icon="sap-icon://full-screen"
+                        tooltip="Expand All"
+                        type="Transparent"
+                        press=".onExpandAll" />
+                    <Button
+                        icon="sap-icon://exit-full-screen"
+                        tooltip="Collapse All"
+                        type="Transparent"
+                        press=".onCollapseAll" />
+                </f:navigationActions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <!-- =========================================================== -->
+        <!-- DYNAMIC PAGE HEADER — KEY PRODUCT STATS                      -->
+        <!-- =========================================================== -->
+        <f:header>
+            <f:DynamicPageHeader pinnable="true">
+                <HBox
+                    wrap="Wrap"
+                    alignItems="Start"
+                    class="sapUiSmallMarginBeginEnd sapUiSmallMarginTopBottom">
+
+                    <!-- Price Display -->
+                    <VBox class="sapUiMediumMarginEnd">
+                        <Label text="Price" design="Bold" />
+                        <Text
+                            text="{parts: [{path: 'products>Price'}, {path: 'products>Currency'}], formatter: '.formatter.formatPrice'}"
+                            class="priceDisplay sapUiSmallMarginTop" />
+                        <Text
+                            text="{path: 'products>Discount', formatter: '.formatter.formatDiscount'}"
+                            class="discountBadge sapUiTinyMarginTop"
+                            visible="{path: 'products>Discount', formatter: '.formatter.formatDiscountVisible'}" />
+                    </VBox>
+
+                    <!-- Stock Status -->
+                    <VBox class="sapUiMediumMarginEnd">
+                        <Label text="Stock" design="Bold" />
+                        <ObjectStatus
+                            text="{products>Stock} {products>Unit}"
+                            state="{path: 'products>Stock', formatter: '.formatter.formatStockState'}"
+                            class="sapUiSmallMarginTop" />
+                    </VBox>
+
+                    <!-- Rating -->
+                    <VBox class="sapUiMediumMarginEnd">
+                        <Label text="Rating" design="Bold" />
+                        <HBox alignItems="Center" class="sapUiSmallMarginTop">
+                            <RatingIndicator
+                                value="{products>Rating}"
+                                maxValue="5"
+                                editable="false"
+                                displayOnly="true" />
+                            <Text
+                                text="{path: 'products>Rating', formatter: '.formatter.formatRating'}"
+                                class="sapUiSmallMarginBegin" />
+                            <Text
+                                text="({products>RatingCount} reviews)"
+                                class="sapUiSmallMarginBegin textMuted" />
+                        </HBox>
+                    </VBox>
+
+                    <!-- Status -->
+                    <VBox class="sapUiMediumMarginEnd">
+                        <Label text="Status" design="Bold" />
+                        <ObjectStatus
+                            text="{path: 'products>Status', formatter: '.formatter.formatStatusText'}"
+                            state="{path: 'products>Status', formatter: '.formatter.formatStatus'}"
+                            class="sapUiSmallMarginTop" />
+                    </VBox>
+
+                    <!-- Featured Badge -->
+                    <VBox>
+                        <Label text="Featured" design="Bold" />
+                        <ObjectStatus
+                            text="Featured Product"
+                            state="Success"
+                            icon="sap-icon://favorite"
+                            visible="{products>Featured}"
+                            class="sapUiSmallMarginTop" />
+                        <Text
+                            text="Standard Product"
+                            visible="{= !${products>Featured} }"
+                            class="sapUiSmallMarginTop textMuted" />
+                    </VBox>
+
+                </HBox>
+            </f:DynamicPageHeader>
+        </f:header>
+
+        <!-- =========================================================== -->
+        <!-- DYNAMIC PAGE CONTENT — ACCORDION PANELS                      -->
+        <!-- =========================================================== -->
+        <f:content>
+            <VBox class="sapUiSmallMarginBeginEnd sapUiSmallMarginTopBottom">
+
+                <!-- ================================================== -->
+                <!-- PANEL 1: GENERAL INFORMATION                         -->
+                <!-- ================================================== -->
+                <Panel
+                    id="generalInfoPanel"
+                    headerText="{i18n>panelGeneralInfo}"
+                    expandable="true"
+                    expanded="true"
+                    class="accordionPanel sapUiSmallMarginBottom">
+                    <content>
+                        <form:SimpleForm
+                            editable="false"
+                            layout="ResponsiveGridLayout"
+                            labelSpanXL="4"
+                            labelSpanL="4"
+                            labelSpanM="4"
+                            labelSpanS="12"
+                            columnsXL="2"
+                            columnsL="2"
+                            columnsM="1"
+                            class="sapUiSmallMargin">
+                            <form:content>
+                                <Label text="{i18n>labelProductID}" />
+                                <Text text="{products>ProductID}" />
+
+                                <Label text="{i18n>labelProductName}" />
+                                <Text text="{products>ProductName}" />
+
+                                <Label text="{i18n>labelCategory}" />
+                                <Text text="{products>Category}" />
+
+                                <Label text="{i18n>labelSubCategory}" />
+                                <Text text="{products>SubCategory}" />
+
+                                <Label text="{i18n>labelStatus}" />
+                                <ObjectStatus
+                                    text="{path: 'products>Status', formatter: '.formatter.formatStatusText'}"
+                                    state="{path: 'products>Status', formatter: '.formatter.formatStatus'}" />
+
+                                <Label text="{i18n>labelSupplier}" />
+                                <Text text="{products>Supplier}" />
+
+                                <Label text="{i18n>labelCreatedAt}" />
+                                <Text text="{path: 'products>CreatedAt', formatter: '.formatter.formatDate'}" />
+
+                                <Label text="{i18n>labelModifiedAt}" />
+                                <Text text="{path: 'products>ModifiedAt', formatter: '.formatter.formatDate'}" />
+                            </form:content>
+                        </form:SimpleForm>
+                    </content>
+                </Panel>
+
+                <!-- ================================================== -->
+                <!-- PANEL 2: PRICING & INVENTORY                         -->
+                <!-- ================================================== -->
+                <Panel
+                    id="pricingPanel"
+                    headerText="{i18n>panelPricingStock}"
+                    expandable="true"
+                    expanded="true"
+                    class="accordionPanel sapUiSmallMarginBottom">
+                    <content>
+                        <form:SimpleForm
+                            editable="false"
+                            layout="ResponsiveGridLayout"
+                            labelSpanXL="4"
+                            labelSpanL="4"
+                            labelSpanM="4"
+                            labelSpanS="12"
+                            columnsXL="2"
+                            columnsL="2"
+                            columnsM="1"
+                            class="sapUiSmallMargin">
+                            <form:content>
+                                <Label text="{i18n>labelPrice}" />
+                                <Text text="{parts: [{path: 'products>Price'}, {path: 'products>Currency'}], formatter: '.formatter.formatPrice'}" />
+
+                                <Label text="{i18n>labelCurrency}" />
+                                <Text text="{products>Currency}" />
+
+                                <Label text="{i18n>labelDiscount}" />
+                                <Text text="{path: 'products>Discount', formatter: '.formatter.formatDiscount'}" />
+
+                                <Label text="{i18n>labelDiscountedPrice}" />
+                                <Text text="{parts: [{path: 'products>Price'}, {path: 'products>Discount'}], formatter: '.formatter.formatDiscountedPrice'}" />
+
+                                <Label text="{i18n>labelStock}" />
+                                <ObjectStatus
+                                    text="{products>Stock}"
+                                    state="{path: 'products>Stock', formatter: '.formatter.formatStockState'}" />
+
+                                <Label text="{i18n>labelUnit}" />
+                                <Text text="{products>Unit}" />
+                            </form:content>
+                        </form:SimpleForm>
+                    </content>
+                </Panel>
+
+                <!-- ================================================== -->
+                <!-- PANEL 3: DESCRIPTION & TAGS                          -->
+                <!-- ================================================== -->
+                <Panel
+                    id="descriptionPanel"
+                    headerText="{i18n>panelDescription}"
+                    expandable="true"
+                    expanded="false"
+                    class="accordionPanel sapUiSmallMarginBottom">
+                    <content>
+                        <VBox class="sapUiSmallMargin">
+                            <Label text="{i18n>labelDescription}" design="Bold" class="sapUiSmallMarginBottom" />
+                            <Text
+                                text="{products>Description}"
+                                wrapping="true"
+                                class="sapUiSmallMarginBottom" />
+                            <Label text="{i18n>labelRating}" design="Bold" class="sapUiSmallMarginBottom" />
+                            <HBox alignItems="Center" class="sapUiSmallMarginBottom">
+                                <RatingIndicator
+                                    value="{products>Rating}"
+                                    maxValue="5"
+                                    editable="false"
+                                    displayOnly="true" />
+                                <Text
+                                    text="{path: 'products>Rating', formatter: '.formatter.formatRating'} / 5.0  ({products>RatingCount} ratings)"
+                                    class="sapUiSmallMarginBegin" />
+                            </HBox>
+                            <Label text="{i18n>labelTags}" design="Bold" class="sapUiSmallMarginBottom" />
+                            <FlexBox wrap="Wrap" id="tagsContainer" class="sapUiSmallMarginBottom">
+                                <!-- Tags rendered programmatically in controller -->
+                            </FlexBox>
+                        </VBox>
+                    </content>
+                </Panel>
+
+                <!-- ================================================== -->
+                <!-- PANEL 4: PHYSICAL SPECIFICATIONS                     -->
+                <!-- ================================================== -->
+                <Panel
+                    id="physicalPanel"
+                    headerText="{i18n>panelPhysical}"
+                    expandable="true"
+                    expanded="false"
+                    class="accordionPanel sapUiSmallMarginBottom">
+                    <content>
+                        <form:SimpleForm
+                            editable="false"
+                            layout="ResponsiveGridLayout"
+                            labelSpanXL="4"
+                            labelSpanL="4"
+                            labelSpanM="4"
+                            labelSpanS="12"
+                            columnsXL="2"
+                            columnsL="2"
+                            columnsM="1"
+                            class="sapUiSmallMargin">
+                            <form:content>
+                                <Label text="{i18n>labelWeight}" />
+                                <Text text="{products>Weight}" />
+
+                                <Label text="{i18n>labelDimensions}" />
+                                <Text text="{products>Dimensions}" />
+                            </form:content>
+                        </form:SimpleForm>
+                    </content>
+                </Panel>
+
+            </VBox>
+        </f:content>
+
+    </f:DynamicPage>
+
+</mvc:View>

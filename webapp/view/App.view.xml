@@ -1,0 +1,10 @@
+<mvc:View
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:f="sap.f"
+    controllerName="com.demo.productcatalog.controller.App"
+    displayBlock="true">
+    <Shell id="shell" appWidthLimited="false">
+        <NavContainer id="navContainer" />
+    </Shell>
+</mvc:View>

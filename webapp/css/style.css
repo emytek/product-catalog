@@ -1,0 +1,717 @@
+/* ============================================================
+   Product Catalog Manager - Custom CSS
+   Complements SAP Horizon Theme (sap_horizon)
+   ============================================================ */
+
+/* ============================================================
+   GLOBAL APP STYLES
+   ============================================================ */
+.productCatalogApp .navContainer {
+    height: 100%;
+    background-color: var(--sapBackgroundColor, #f5f6f7);
+}
+
+/* Smooth page transitions */
+.sapMPage {
+    transition: opacity 0.2s ease-in-out;
+}
+
+/* ============================================================
+   PRODUCT CARD STYLES
+   ============================================================ */
+.productCard {
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    background-color: var(--sapTile_Background, #ffffff);
+    overflow: hidden;
+    cursor: pointer;
+    border: 1px solid var(--sapTile_BorderColor, #e5e5e5);
+}
+
+.productCard:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+    transform: translateY(-3px);
+    border-color: var(--sapHighlightColor, #0070f2);
+}
+
+.productCard:active {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.10);
+}
+
+/* Card entrance animation */
+.productCard {
+    animation: cardEntrance 0.3s ease-out both;
+}
+
+@keyframes cardEntrance {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ============================================================
+   FEATURED CAROUSEL STYLES
+   ============================================================ */
+.featuredCarousel {
+    height: 320px;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+}
+
+.featuredCarousel .sapMCrslInner {
+    border-radius: 16px;
+}
+
+.carouselPage {
+    height: 300px;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 24px;
+    box-sizing: border-box;
+}
+
+.carouselPage.electronics {
+    background: linear-gradient(135deg, #1a2a6c 0%, #b21f1f 50%, #fdbb2d 100%);
+}
+
+.carouselPage.furniture {
+    background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
+}
+
+.carouselPage.clothing {
+    background: linear-gradient(135deg, #8e2de2 0%, #4a00e0 100%);
+}
+
+.carouselPage.food {
+    background: linear-gradient(135deg, #134e5e 0%, #71b280 100%);
+}
+
+.carouselPage.office {
+    background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%);
+}
+
+.carouselPage.default {
+    background: linear-gradient(135deg, #0070f2 0%, #00b4d8 100%);
+}
+
+.carouselProductName {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.3;
+    margin-bottom: 6px;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.carouselProductPrice {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.95);
+    margin-bottom: 8px;
+}
+
+.carouselProductCategory {
+    font-size: 0.875rem;
+    color: rgba(255, 255, 255, 0.8);
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+}
+
+.carouselBadge {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background-color: rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 20px;
+    padding: 4px 12px;
+    color: #ffffff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+/* ============================================================
+   KPI TILE STYLES
+   ============================================================ */
+.kpiTile {
+    border-radius: 12px !important;
+    transition: all 0.2s ease !important;
+    border: 1px solid var(--sapTile_BorderColor, #e5e5e5) !important;
+}
+
+.kpiTile:hover {
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12) !important;
+    transform: translateY(-2px);
+}
+
+.kpiTile .sapMGTCnt {
+    border-radius: 12px;
+}
+
+/* ============================================================
+   STATUS BADGE STYLES
+   ============================================================ */
+.statusBadge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}
+
+.statusBadge.active {
+    background-color: #e8f5e9;
+    color: #1b5e20;
+    border: 1px solid #a5d6a7;
+}
+
+.statusBadge.inactive {
+    background-color: #fff8e1;
+    color: #e65100;
+    border: 1px solid #ffcc80;
+}
+
+.statusBadge.discontinued {
+    background-color: #ffebee;
+    color: #b71c1c;
+    border: 1px solid #ef9a9a;
+}
+
+/* ============================================================
+   RATING STARS STYLES
+   ============================================================ */
+.ratingStars {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ratingStars .sapMRI {
+    pointer-events: none;
+}
+
+/* ============================================================
+   DISCOUNT BADGE STYLES
+   ============================================================ */
+.discountBadge {
+    background-color: #d32f2f;
+    color: #ffffff;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 4px;
+    display: inline-block;
+    letter-spacing: 0.05em;
+    animation: discountPulse 2s infinite;
+}
+
+@keyframes discountPulse {
+    0% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4); }
+    70% { box-shadow: 0 0 0 6px rgba(211, 47, 47, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0); }
+}
+
+/* ============================================================
+   PAGINATION TOOLBAR STYLES
+   ============================================================ */
+.paginationToolbar {
+    background-color: var(--sapList_FooterBackground, #fafafa) !important;
+    border-top: 1px solid var(--sapList_BorderColor, #e5e5e5) !important;
+    padding: 8px 16px !important;
+}
+
+.paginationToolbar .sapMBtn {
+    border-radius: 6px;
+}
+
+.paginationToolbar .sapMTBSeparator {
+    display: none;
+}
+
+.paginationPageText {
+    font-weight: 600;
+    color: var(--sapTextColor, #1d2d3e);
+    padding: 0 12px;
+    white-space: nowrap;
+}
+
+.paginationShowingText {
+    color: var(--sapNeutralElementColor, #556b7a);
+    font-size: 0.875rem;
+    white-space: nowrap;
+}
+
+/* ============================================================
+   ACCORDION PANEL STYLES
+   ============================================================ */
+.accordionPanel {
+    border-radius: 10px !important;
+    margin-bottom: 12px !important;
+    overflow: hidden !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06) !important;
+    border: 1px solid var(--sapGroup_ContentBorderColor, #e8e8e8) !important;
+    transition: box-shadow 0.2s ease !important;
+}
+
+.accordionPanel:hover {
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.10) !important;
+}
+
+.accordionPanel .sapMPanelHdr {
+    background-color: var(--sapList_HeaderBackground, #f5f6f7) !important;
+    border-bottom: 1px solid var(--sapGroup_ContentBorderColor, #e8e8e8) !important;
+    font-weight: 600 !important;
+    padding: 14px 16px !important;
+}
+
+/* ============================================================
+   PRODUCT DETAIL HEADER
+   ============================================================ */
+.detailHeader {
+    background: linear-gradient(135deg, #0070f2 0%, #00b4d8 100%);
+    border-radius: 16px;
+    padding: 24px;
+    color: #ffffff;
+    margin-bottom: 20px;
+}
+
+.detailHeaderTitle {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #ffffff;
+    margin: 0 0 8px 0;
+}
+
+.detailHeaderSubtitle {
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 1rem;
+    margin: 0;
+}
+
+/* ============================================================
+   PRODUCT IMAGE / CATEGORY ICON PLACEHOLDER
+   ============================================================ */
+.productImage {
+    width: 100%;
+    height: 200px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 4rem;
+    color: #ffffff;
+    text-align: center;
+}
+
+.productImage.electronics {
+    background: linear-gradient(135deg, #1a237e, #283593);
+}
+
+.productImage.furniture {
+    background: linear-gradient(135deg, #1b5e20, #2e7d32);
+}
+
+.productImage.clothing {
+    background: linear-gradient(135deg, #4a148c, #6a1b9a);
+}
+
+.productImage.food {
+    background: linear-gradient(135deg, #e65100, #f57c00);
+}
+
+.productImage.office {
+    background: linear-gradient(135deg, #37474f, #546e7a);
+}
+
+/* Category Avatar Colors */
+.sapFAvatarColorElectronics {
+    background-color: #1a237e !important;
+}
+
+.sapFAvatarColorFurniture {
+    background-color: #1b5e20 !important;
+}
+
+.sapFAvatarColorClothing {
+    background-color: #4a148c !important;
+}
+
+.sapFAvatarColorFood {
+    background-color: #e65100 !important;
+}
+
+.sapFAvatarColorOffice {
+    background-color: #37474f !important;
+}
+
+/* ============================================================
+   SEARCH CONTAINER STYLES
+   ============================================================ */
+.searchContainer {
+    background-color: var(--sapShell_Background, #ffffff);
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--sapField_BorderColor, #c5cdd4);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.searchContainer:focus-within {
+    border-color: var(--sapHighlightColor, #0070f2);
+    box-shadow: 0 0 0 2px rgba(0, 112, 242, 0.15);
+}
+
+/* ============================================================
+   FILTER CHIP STYLES
+   ============================================================ */
+.filterChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background-color: var(--sapHighlightColor, #0070f2);
+    color: #ffffff;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    margin: 2px;
+}
+
+.filterChip:hover {
+    background-color: #005bbf;
+}
+
+.filterChip .filterChipClose {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.filterChip .filterChipClose:hover {
+    background-color: rgba(255, 255, 255, 0.5);
+}
+
+/* ============================================================
+   EMPTY STATE STYLES
+   ============================================================ */
+.emptyState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 24px;
+    text-align: center;
+    min-height: 300px;
+}
+
+.emptyState .emptyStateIcon {
+    font-size: 5rem;
+    color: var(--sapNeutralElementColor, #8c9ba5);
+    margin-bottom: 20px;
+    opacity: 0.6;
+}
+
+.emptyState .emptyStateTitle {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--sapTextColor, #1d2d3e);
+    margin-bottom: 8px;
+}
+
+.emptyState .emptyStateText {
+    font-size: 0.9rem;
+    color: var(--sapNeutralElementColor, #556b7a);
+    max-width: 380px;
+    line-height: 1.5;
+    margin-bottom: 20px;
+}
+
+/* ============================================================
+   TABLE ROW HOVER EFFECTS
+   ============================================================ */
+.sapMListTbl .sapMLIBSelected,
+.sapMListTbl .sapMLIBHoverable:hover {
+    background-color: var(--sapList_SelectionBackgroundColor, #e8f2fe) !important;
+    transition: background-color 0.15s ease;
+}
+
+.sapMListTbl .sapMColumnListItem:hover .sapMBtn {
+    opacity: 1;
+}
+
+/* Action buttons in table rows — slightly faded until hover */
+.sapMListTbl .sapMColumnListItem .sapMBtn {
+    opacity: 0.7;
+    transition: opacity 0.15s ease;
+}
+
+.sapMListTbl .sapMColumnListItem:hover .sapMBtn {
+    opacity: 1;
+}
+
+/* ============================================================
+   FORM STYLES
+   ============================================================ */
+.sapUiSimpleForm .sapUiFormTitle {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--sapGroup_TitleTextColor, #1d2d3e);
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--sapHighlightColor, #0070f2);
+    margin-bottom: 12px;
+}
+
+/* Form field spacing */
+.sapUiFormElement {
+    margin-bottom: 8px;
+}
+
+/* ============================================================
+   DYNAMIC PAGE CUSTOMIZATIONS
+   ============================================================ */
+.sapFDynamicPageTitleMainHeading .sapMTitle {
+    font-size: 1.5rem !important;
+    font-weight: 700 !important;
+}
+
+.sapFDynamicPageHeader {
+    background-color: var(--sapObjectHeader_Background, #ffffff);
+    border-bottom: 1px solid var(--sapGroup_ContentBorderColor, #e8e8e8);
+}
+
+/* ============================================================
+   FOOTER BAR (FORM SAVE/CANCEL)
+   ============================================================ */
+.formFooterBar {
+    background-color: var(--sapPageFooter_Background, #f5f6f7) !important;
+    border-top: 1px solid var(--sapGroup_ContentBorderColor, #e8e8e8) !important;
+    padding: 10px 24px !important;
+}
+
+/* ============================================================
+   GENERIC TILE OVERRIDES
+   ============================================================ */
+.sapMGT {
+    border-radius: 12px !important;
+    transition: box-shadow 0.2s ease, transform 0.2s ease !important;
+}
+
+.sapMGT:hover {
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12) !important;
+    transform: translateY(-2px) !important;
+}
+
+.sapMGTFooter {
+    border-radius: 0 0 12px 12px !important;
+}
+
+/* ============================================================
+   RESPONSIVE MEDIA QUERIES
+   ============================================================ */
+
+/* Tablet (768px - 1024px) */
+@media (max-width: 1024px) {
+    .featuredCarousel {
+        height: 260px;
+    }
+
+    .carouselPage {
+        height: 240px;
+        padding: 16px;
+    }
+
+    .carouselProductName {
+        font-size: 1.25rem;
+    }
+
+    .carouselProductPrice {
+        font-size: 1rem;
+    }
+
+    .kpiTile {
+        min-width: 140px !important;
+    }
+}
+
+/* Mobile (< 768px) */
+@media (max-width: 767px) {
+    .featuredCarousel {
+        height: 220px;
+    }
+
+    .carouselPage {
+        height: 200px;
+        padding: 14px;
+    }
+
+    .carouselProductName {
+        font-size: 1.1rem;
+    }
+
+    .carouselProductPrice {
+        font-size: 0.9rem;
+    }
+
+    .carouselProductCategory {
+        font-size: 0.75rem;
+    }
+
+    .paginationToolbar {
+        flex-wrap: wrap;
+        padding: 6px 8px !important;
+    }
+
+    .paginationShowingText {
+        font-size: 0.75rem;
+    }
+
+    .detailHeader {
+        padding: 16px;
+    }
+
+    .detailHeaderTitle {
+        font-size: 1.25rem;
+    }
+
+    .emptyState {
+        padding: 40px 16px;
+        min-height: 200px;
+    }
+
+    .emptyState .emptyStateIcon {
+        font-size: 3.5rem;
+    }
+}
+
+/* ============================================================
+   SAPUI5 CONTROL OVERRIDES FOR HORIZON THEME
+   ============================================================ */
+
+/* ObjectStatus enhancements */
+.sapMObjStatus.sapMObjStatusSuccess .sapMObjStatusText {
+    font-weight: 600;
+}
+
+.sapMObjStatus.sapMObjStatusError .sapMObjStatusText {
+    font-weight: 600;
+}
+
+/* ObjectIdentifier title bold */
+.sapMObjectIdentifier .sapMObjectIdentifierTitle {
+    font-weight: 600;
+}
+
+/* Toolbar separator visibility */
+.sapMTBSeparator {
+    background-color: var(--sapToolbar_SeparatorColor, #d9d9d9);
+}
+
+/* Emphasized button override */
+.sapMBtnEmphasized {
+    font-weight: 600 !important;
+}
+
+/* Select dropdown arrow color */
+.sapMSlt::after {
+    color: var(--sapContent_IconColor, #0070f2);
+}
+
+/* ============================================================
+   SCROLLBAR STYLING
+   ============================================================ */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: rgba(0, 0, 0, 0.2);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(0, 0, 0, 0.35);
+}
+
+/* ============================================================
+   UTILITY CLASSES
+   ============================================================ */
+.sapUiTinyMarginTop {
+    margin-top: 4px;
+}
+
+.sapUiSmallMarginTop {
+    margin-top: 8px;
+}
+
+.textBold {
+    font-weight: 700;
+}
+
+.textMuted {
+    color: var(--sapNeutralElementColor, #556b7a);
+}
+
+.textSuccess {
+    color: var(--sapPositiveTextColor, #256f3a);
+}
+
+.textError {
+    color: var(--sapNegativeTextColor, #aa0808);
+}
+
+.textWarning {
+    color: var(--sapCriticalTextColor, #e9730c);
+}
+
+.fullWidth {
+    width: 100%;
+}
+
+.cursorPointer {
+    cursor: pointer;
+}
+
+/* Price display in detail view */
+.priceDisplay {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--sapHighlightColor, #0070f2);
+    line-height: 1;
+}
+
+.originalPrice {
+    font-size: 1rem;
+    color: var(--sapNeutralElementColor, #556b7a);
+    text-decoration: line-through;
+}

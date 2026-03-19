@@ -1,0 +1,9 @@
+# Dependencies
+node_modules/
+
+# Environment variables (contains DB credentials — never commit)
+.env
+
+# Logs
+logs/
+*.log

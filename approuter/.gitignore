@@ -1,0 +1,5 @@
+# Dependencies
+node_modules/
+
+# Webapp copy generated during mbt build — source of truth is /webapp
+webapp/

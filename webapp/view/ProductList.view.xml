@@ -1,0 +1,288 @@
+<mvc:View
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:f="sap.f"
+    xmlns:core="sap.ui.core"
+    controllerName="com.demo.productcatalog.controller.ProductList">
+
+    <f:DynamicPage id="productListPage" headerExpanded="true" toggleHeaderOnTitleClick="false">
+
+        <!-- =========================================================== -->
+        <!-- DYNAMIC PAGE TITLE                                            -->
+        <!-- =========================================================== -->
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading>
+                    <Title text="Products" level="H1" />
+                </f:heading>
+                <f:snappedHeading>
+                    <Title text="Products" level="H1" />
+                </f:snappedHeading>
+
+                <f:actions>
+                    <Button
+                        id="addProductBtn"
+                        text="{i18n>actionAddProduct}"
+                        type="Emphasized"
+                        icon="sap-icon://add"
+                        press=".onAddProduct" />
+                    <Button
+                        id="deleteSelectedBtn"
+                        text="Delete Selected"
+                        type="Reject"
+                        icon="sap-icon://delete"
+                        visible="{= ${viewModel>/selectedCount} > 0}"
+                        press=".onDeleteSelected" />
+                    <Button
+                        text="Home"
+                        icon="sap-icon://home"
+                        press=".onNavHome" />
+                </f:actions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <!-- =========================================================== -->
+        <!-- DYNAMIC PAGE HEADER — SEARCH AND FILTER CONTROLS             -->
+        <!-- =========================================================== -->
+        <f:header>
+            <f:DynamicPageHeader pinnable="true">
+                <VBox class="sapUiSmallMarginBeginEnd sapUiSmallMarginTopBottom">
+
+                    <!-- Search and Filter Row -->
+                    <OverflowToolbar id="filterToolbar" style="Clear">
+                        <!-- Search Field -->
+                        <SearchField
+                            id="searchField"
+                            placeholder="{i18n>searchPlaceholder}"
+                            width="300px"
+                            liveChange=".onSearch"
+                            search=".onSearch" />
+                        <ToolbarSeparator />
+                        <!-- Category Filter -->
+                        <Label text="Category:" />
+                        <Select
+                            id="categorySelect"
+                            width="160px"
+                            change=".onCategoryFilterChange">
+                            <items>
+                                <core:Item key="" text="{i18n>filterAllCategories}" />
+                                <core:Item key="Electronics" text="Electronics" />
+                                <core:Item key="Furniture" text="Furniture" />
+                                <core:Item key="Clothing" text="Clothing" />
+                                <core:Item key="Food &amp; Beverage" text="Food &amp; Beverage" />
+                                <core:Item key="Office Supplies" text="Office Supplies" />
+                            </items>
+                        </Select>
+                        <ToolbarSeparator />
+                        <!-- Status Filter -->
+                        <Label text="Status:" />
+                        <Select
+                            id="statusSelect"
+                            width="140px"
+                            change=".onStatusFilterChange">
+                            <items>
+                                <core:Item key="" text="{i18n>filterAllStatuses}" />
+                                <core:Item key="Active" text="Active" />
+                                <core:Item key="Inactive" text="Inactive" />
+                                <core:Item key="Discontinued" text="Discontinued" />
+                            </items>
+                        </Select>
+                        <ToolbarSeparator />
+                        <!-- Sort Button -->
+                        <Button
+                            id="sortBtn"
+                            text="{i18n>buttonSort}"
+                            icon="sap-icon://sort"
+                            type="Default"
+                            press=".onSortPress" />
+                        <!-- Reset Filters -->
+                        <Button
+                            id="resetBtn"
+                            text="{i18n>buttonResetFilters}"
+                            icon="sap-icon://clear-filter"
+                            type="Default"
+                            press=".onResetFilters" />
+                    </OverflowToolbar>
+
+                </VBox>
+            </f:DynamicPageHeader>
+        </f:header>
+
+        <!-- =========================================================== -->
+        <!-- DYNAMIC PAGE CONTENT — TABLE                                  -->
+        <!-- =========================================================== -->
+        <f:content>
+            <VBox>
+
+                <!-- ================================================== -->
+                <!-- PRODUCT TABLE                                         -->
+                <!-- ================================================== -->
+                <Table
+                    id="productTable"
+                    items="{viewModel>/displayedProducts}"
+                    mode="MultiSelect"
+                    selectionChange=".onSelectionChange"
+                    noDataText="{i18n>emptyStateTitle}"
+                    growing="false"
+                    alternateRowColors="true"
+                    sticky="ColumnHeaders,HeaderToolbar">
+
+                    <headerToolbar>
+                        <OverflowToolbar style="Clear">
+                            <Title text="Product List" level="H3" />
+                            <ToolbarSpacer />
+                            <Text text="{viewModel>/totalCount} items" class="sapUiSmallMarginEnd" />
+                        </OverflowToolbar>
+                    </headerToolbar>
+
+                    <columns>
+                        <Column width="4rem" hAlign="Center">
+                            <Text text="#" />
+                        </Column>
+                        <Column minScreenWidth="Tablet" demandPopin="true" width="auto">
+                            <Text text="{i18n>colProductName}" />
+                        </Column>
+                        <Column minScreenWidth="Tablet" demandPopin="true" width="10rem">
+                            <Text text="{i18n>colCategory}" />
+                        </Column>
+                        <Column minScreenWidth="Desktop" demandPopin="true" width="8rem" hAlign="End">
+                            <Text text="{i18n>colPrice}" />
+                        </Column>
+                        <Column minScreenWidth="Desktop" demandPopin="true" width="8rem" hAlign="Center">
+                            <Text text="{i18n>colStock}" />
+                        </Column>
+                        <Column minScreenWidth="Tablet" demandPopin="true" width="9rem" hAlign="Center">
+                            <Text text="{i18n>colStatus}" />
+                        </Column>
+                        <Column minScreenWidth="Desktop" demandPopin="true" width="9rem" hAlign="Center">
+                            <Text text="{i18n>colRating}" />
+                        </Column>
+                        <Column minScreenWidth="Desktop" demandPopin="true" width="10rem">
+                            <Text text="{i18n>colSupplier}" />
+                        </Column>
+                        <Column width="8rem" hAlign="Center">
+                            <Text text="{i18n>colActions}" />
+                        </Column>
+                    </columns>
+
+                    <items>
+                        <ColumnListItem
+                            type="Navigation"
+                            press=".onProductPress">
+                            <!-- Row Number -->
+                            <cells>
+                                <Text text="{viewModel>_rowIndex}" />
+                            </cells>
+                            <!-- Product Name + ID -->
+                            <cells>
+                                <ObjectIdentifier
+                                    title="{viewModel>ProductName}"
+                                    text="{viewModel>ProductID}" />
+                            </cells>
+                            <!-- Category -->
+                            <cells>
+                                <Text text="{viewModel>Category}" />
+                            </cells>
+                            <!-- Price -->
+                            <cells>
+                                <Text text="{parts: [{path: 'viewModel>Price'}, {path: 'viewModel>Currency'}], formatter: '.formatter.formatPrice'}" />
+                            </cells>
+                            <!-- Stock -->
+                            <cells>
+                                <ObjectStatus
+                                    text="{viewModel>Stock}"
+                                    state="{path: 'viewModel>Stock', formatter: '.formatter.formatStockState'}" />
+                            </cells>
+                            <!-- Status -->
+                            <cells>
+                                <ObjectStatus
+                                    text="{path: 'viewModel>Status', formatter: '.formatter.formatStatusText'}"
+                                    state="{path: 'viewModel>Status', formatter: '.formatter.formatStatus'}" />
+                            </cells>
+                            <!-- Rating -->
+                            <cells>
+                                <HBox alignItems="Center" justifyContent="Center">
+                                    <RatingIndicator
+                                        value="{viewModel>Rating}"
+                                        maxValue="5"
+                                        editable="false"
+                                        displayOnly="true" />
+                                    <Text
+                                        text="{path: 'viewModel>Rating', formatter: '.formatter.formatRating'}"
+                                        class="sapUiTinyMarginBegin" />
+                                </HBox>
+                            </cells>
+                            <!-- Supplier -->
+                            <cells>
+                                <Text text="{viewModel>Supplier}" wrapping="false" />
+                            </cells>
+                            <!-- Actions -->
+                            <cells>
+                                <HBox justifyContent="Center" alignItems="Center">
+                                    <Button
+                                        icon="sap-icon://edit"
+                                        type="Transparent"
+                                        tooltip="Edit"
+                                        press=".onEditProduct" />
+                                    <Button
+                                        icon="sap-icon://delete"
+                                        type="Transparent"
+                                        tooltip="Delete"
+                                        press=".onDeleteProduct" />
+                                </HBox>
+                            </cells>
+                        </ColumnListItem>
+                    </items>
+
+                </Table>
+
+                <!-- ================================================== -->
+                <!-- PAGINATION TOOLBAR                                   -->
+                <!-- ================================================== -->
+                <Toolbar id="paginationToolbar" class="paginationToolbar">
+                    <ToolbarSpacer />
+                    <Button
+                        id="firstPageBtn"
+                        icon="sap-icon://close-command-field"
+                        tooltip="{i18n>paginationFirst}"
+                        type="Transparent"
+                        enabled="{viewModel>/hasPrevPage}"
+                        press=".onFirstPage" />
+                    <Button
+                        id="prevPageBtn"
+                        icon="sap-icon://slim-arrow-left"
+                        tooltip="{i18n>paginationPrevious}"
+                        type="Transparent"
+                        enabled="{viewModel>/hasPrevPage}"
+                        press=".onPrevPage" />
+                    <Text
+                        id="pageText"
+                        text="Page {viewModel>/currentPage} of {viewModel>/totalPages}"
+                        class="paginationPageText" />
+                    <Button
+                        id="nextPageBtn"
+                        icon="sap-icon://slim-arrow-right"
+                        tooltip="{i18n>paginationNext}"
+                        type="Transparent"
+                        enabled="{viewModel>/hasNextPage}"
+                        press=".onNextPage" />
+                    <Button
+                        id="lastPageBtn"
+                        icon="sap-icon://open-command-field"
+                        tooltip="{i18n>paginationLast}"
+                        type="Transparent"
+                        enabled="{viewModel>/hasNextPage}"
+                        press=".onLastPage" />
+                    <ToolbarSpacer />
+                    <Text
+                        id="showingText"
+                        text="Showing {viewModel>/startItem}–{viewModel>/endItem} of {viewModel>/totalCount} products"
+                        class="paginationShowingText" />
+                </Toolbar>
+
+            </VBox>
+        </f:content>
+
+    </f:DynamicPage>
+
+</mvc:View>

@@ -1,0 +1,494 @@
+================================================================================
+  DATABASE SETUP GUIDE — DETAILED
+  Microsoft SQL Server + Product Catalog Manager
+================================================================================
+  Version : 1.0.0
+  Date    : 2026-03-17
+================================================================================
+
+IMPORTANT — ORDER OF OPERATIONS
+────────────────────────────────
+  You must set up and run the DATABASE before you start the Node.js backend.
+
+  Why? When the backend server starts (npm run dev), the very first thing it does
+  is call getPool() — which tries to open a real TCP connection to SQL Server.
+  If SQL Server is not running, the backend will crash immediately with:
+    "ConnectionError: Failed to connect to localhost:1433"
+
+  Correct setup order:
+    Step 1 → Install SQL Server
+    Step 2 → Verify SQL Server is running
+    Step 3 → Connect via SSMS or Azure Data Studio
+    Step 4 → Run the 3 SQL script files (migrations + seed)
+    Step 5 → Create your .env file in the backend folder
+    Step 6 → Run npm install in the backend folder
+    Step 7 → Start the backend: npm run dev
+    Step 8 → Start the frontend: npm start (from App root)
+
+────────────────────────────────────────────────────────────────────────────────
+OPTION A — SQL Server Developer Edition (Windows, Recommended for local dev)
+────────────────────────────────────────────────────────────────────────────────
+
+WHAT IS IT?
+  SQL Server Developer Edition is a full-featured version of SQL Server licensed
+  only for development and testing (not production use). It is completely free.
+
+STEP A1 — Download SQL Server Developer Edition
+  1. Open your browser and go to:
+       https://www.microsoft.com/en-us/sql-server/sql-server-downloads
+  2. Scroll down to the "Developer" tile (not Express, not Standard)
+  3. Click "Download now"
+  4. This downloads a small installer called something like:
+       SQL2022-SSEI-Dev.exe  (about 5 MB)
+
+STEP A2 — Run the Installer
+  1. Double-click SQL2022-SSEI-Dev.exe
+  2. When prompted, choose "Basic" installation type
+     (Basic installs everything needed for development without customisation)
+  3. Click Accept on the license terms
+  4. Choose install location (default is fine: C:\Program Files\Microsoft SQL Server)
+  5. Click Install
+  6. The installer will download the full SQL Server package (~1.4 GB) and install it
+     This typically takes 5–15 minutes depending on your internet speed
+  7. When complete, you will see:
+       "SQL Server 2022 Developer Edition has been installed successfully"
+  8. Important — note the connection string shown at the end:
+       Server Name: localhost  (or .\SQLEXPRESS or DESKTOP-XXXX\SQLEXPRESS)
+     Write this down.
+
+STEP A3 — Install SQL Server Management Studio (SSMS)
+  SSMS is the GUI tool for managing SQL Server (like PgAdmin for PostgreSQL).
+
+  1. On the same completion screen, click "Install SSMS"
+     OR go to: https://learn.microsoft.com/en-us/sql/ssms/download-sql-server-management-studio-ssms
+  2. Download SSMS-Setup-ENU.exe (about 650 MB)
+  3. Run the installer, click Install, accept defaults
+  4. SSMS will appear in your Start Menu when done
+
+  Alternatively, install Azure Data Studio (lighter, cross-platform):
+    https://learn.microsoft.com/en-us/azure-data-studio/download-azure-data-studio
+
+STEP A4 — Enable the SA Login (critical step, often missed)
+  SQL Server Developer Edition disables the "sa" (System Administrator) login
+  by default — it only uses Windows Authentication.  You need to enable SQL
+  Server Authentication and the sa login so the Node.js backend can connect.
+
+  4a. Open SSMS
+  4b. In the "Connect to Server" dialog:
+        Server type:  Database Engine
+        Server name:  localhost  (or .\SQLEXPRESS if that's what step A2 showed)
+        Authentication: Windows Authentication
+        Click Connect
+
+  4c. Once connected, right-click the server name in Object Explorer (top-left)
+      and select Properties
+
+  4d. In the Server Properties dialog:
+        Click "Security" on the left side panel
+        Under "Server authentication", select:
+          ● SQL Server and Windows Authentication mode
+        Click OK
+
+  4e. Now enable the sa login itself:
+        In Object Explorer, expand:  Security → Logins
+        Right-click "sa" → Properties
+        On the "General" page: enter a password (e.g. YourStrong@Passw0rd)
+        On the "Status" page:
+          Under "Login", select: Enabled
+        Click OK
+
+  4f. Restart SQL Server for the changes to take effect:
+        Right-click the server in Object Explorer
+        Select "Restart"
+        Click Yes when prompted
+
+STEP A5 — Enable TCP/IP Protocol
+  SQL Server may be listening on a named pipe but not on TCP port 1433.
+  The Node.js backend (mssql package) uses TCP.
+
+  5a. Open "SQL Server Configuration Manager"
+      (search in Start Menu for "SQL Server Configuration Manager")
+
+  5b. Expand: SQL Server Network Configuration → Protocols for MSSQLSERVER
+        (it might say SQLEXPRESS instead of MSSQLSERVER)
+
+  5c. Right-click "TCP/IP" and select "Enable"
+
+  5d. Right-click "TCP/IP" again and select "Properties"
+        Click the "IP Addresses" tab
+        Scroll to the very bottom to "IPAll"
+        Set "TCP Port" to: 1433
+        Clear "TCP Dynamic Ports" (leave it blank)
+        Click OK
+
+  5e. Restart the SQL Server service:
+        In Configuration Manager, click "SQL Server Services"
+        Right-click "SQL Server (MSSQLSERVER)" → Restart
+
+STEP A6 — Open Firewall Port (if needed)
+  If you get a connection refused error:
+  1. Open Windows Defender Firewall with Advanced Security (search Start Menu)
+  2. Click "Inbound Rules" → "New Rule"
+  3. Rule Type: Port → TCP → Specific local port: 1433
+  4. Action: Allow the connection
+  5. Profile: check all three (Domain, Private, Public)
+  6. Name: SQL Server 1433
+  7. Click Finish
+
+────────────────────────────────────────────────────────────────────────────────
+OPTION B — Docker (Any OS: Windows, Mac, Linux)
+────────────────────────────────────────────────────────────────────────────────
+
+WHAT IS IT?
+  Run SQL Server inside a Docker container — no installation on your OS, fully
+  isolated, easy to start and stop.  Requires Docker Desktop to be installed.
+
+STEP B1 — Install Docker Desktop
+  Download from: https://www.docker.com/products/docker-desktop/
+  Install and start Docker Desktop.  Verify it is running (Docker icon in system tray).
+
+  Verify in terminal:
+    docker --version
+  Expected: Docker version 24.x.x or later
+
+STEP B2 — Pull and Run the SQL Server Container
+
+  Open a terminal (PowerShell, CMD, or BAS terminal) and run:
+
+    docker run \
+      -e "ACCEPT_EULA=Y" \
+      -e "SA_PASSWORD=YourStrong@Passw0rd" \
+      -p 1433:1433 \
+      --name sql-catalog \
+      -d \
+      mcr.microsoft.com/mssql/server:2022-latest
+
+  What each flag means:
+    -e "ACCEPT_EULA=Y"               → Accept the license agreement (required)
+    -e "SA_PASSWORD=YourStrong@Passw0rd" → Set the SA password
+    -p 1433:1433                     → Map container port 1433 to your host port 1433
+    --name sql-catalog               → Give the container a friendly name
+    -d                               → Run in background (detached mode)
+
+  This downloads the SQL Server image (~1.5 GB on first run, cached after that).
+
+STEP B3 — Verify the container is running
+  docker ps
+
+  Expected output (look for "sql-catalog"):
+    CONTAINER ID  IMAGE                            STATUS        PORTS
+    abc123...     mcr.microsoft.com/mssql/server   Up 2 minutes  0.0.0.0:1433->1433/tcp
+
+STEP B4 — Useful Docker management commands
+  Stop the container:      docker stop sql-catalog
+  Start it again:          docker start sql-catalog
+  View logs:               docker logs sql-catalog
+  Remove completely:       docker rm -f sql-catalog
+  Restart:                 docker restart sql-catalog
+
+  To start the container automatically when Docker starts:
+    docker update --restart unless-stopped sql-catalog
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 3 (BOTH OPTIONS) — VERIFY THE CONNECTION WITH SQLCMD
+────────────────────────────────────────────────────────────────────────────────
+
+sqlcmd is a command-line tool that ships with SQL Server (Option A) or can be
+installed separately.
+
+INSTALLING SQLCMD (if not already installed)
+  Windows: It is installed automatically with SQL Server Developer Edition.
+           If missing, download from:
+           https://learn.microsoft.com/en-us/sql/tools/sqlcmd/sqlcmd-utility
+  Mac:     brew install microsoft/mssql-release/mssql-tools18
+  Linux:   See official Microsoft docs for your distro
+
+TEST THE CONNECTION
+
+  Run this in a terminal:
+    sqlcmd -S localhost,1433 -U sa -P "YourStrong@Passw0rd" -Q "SELECT @@VERSION"
+
+  Note: use a comma (not colon) between host and port in sqlcmd.
+
+  Expected output (something like):
+    Microsoft SQL Server 2022 (RTM-CU12) (KB5033663) - 16.0.4115.5 (X64)
+    Mar 12 2024 16:26:01
+    Copyright (C) 2022 Microsoft Corporation
+    Developer Edition (64-bit) on Windows 10 Enterprise ...
+
+  If you see the version string — SQL Server is running and accepting connections.
+
+  Common errors at this point:
+    "Could not open a connection to SQL Server":
+      → SQL Server is not running, or TCP/IP is not enabled (do Step A5 again)
+      → Port 1433 is blocked by firewall (do Step A6)
+    "Login failed for user 'sa'":
+      → SA login is not enabled (do Step A4 again)
+      → Wrong password
+    "Named instance not found":
+      → Try -S localhost\SQLEXPRESS instead of -S localhost
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 4 — CONNECT VIA SSMS OR AZURE DATA STUDIO
+────────────────────────────────────────────────────────────────────────────────
+
+USING SQL SERVER MANAGEMENT STUDIO (SSMS)
+  1. Open SSMS from the Start Menu
+  2. The "Connect to Server" dialog appears automatically:
+       Server type:         Database Engine
+       Server name:         localhost
+                            (if that fails, try: localhost,1433  or  127.0.0.1,1433
+                             or  .\MSSQLSERVER  or  .\SQLEXPRESS)
+       Authentication:      SQL Server Authentication
+       Login:               sa
+       Password:            YourStrong@Passw0rd
+       ☑ Remember password  (tick this for convenience)
+  3. Click Connect
+  4. If successful, you will see the Object Explorer panel on the left
+     showing your server with Databases, Security, etc.
+
+USING AZURE DATA STUDIO (lighter, recommended alternative)
+  1. Open Azure Data Studio
+  2. Click "New Connection" (the + button or Ctrl+N)
+  3. Fill in:
+       Connection type:  Microsoft SQL Server
+       Server:           localhost,1433
+       Authentication:   SQL Login
+       User name:        sa
+       Password:         YourStrong@Passw0rd
+       Database:         <Default>
+       Name:             Local SQL Catalog  (friendly name)
+  4. Click Connect
+  5. You will see the server and its databases in the Connections panel
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 5 — RUN THE SQL MIGRATION AND SEED SCRIPTS
+────────────────────────────────────────────────────────────────────────────────
+
+You need to run 3 SQL files in order.  They are in your project at:
+  backend/database/migrations/001_initial_schema.sql
+  backend/database/migrations/002_indexes_procedures.sql
+  backend/database/seeds/001_seed_data.sql
+
+METHOD A — Using SSMS
+
+  For each file:
+  1. Click File → Open → File  (or press Ctrl+O)
+  2. Navigate to the file and open it
+  3. Verify the query window appears with the SQL code
+  4. Click Execute (the green "play" button) or press F5
+  5. Watch the "Messages" panel at the bottom — look for success messages
+  6. Wait for "Query executed successfully" before opening the next file
+
+  Run in this exact order:
+    FIRST:   001_initial_schema.sql
+             Expected message: "Migration 001 complete: all tables created."
+    SECOND:  002_indexes_procedures.sql
+             Expected message: "Migration 002 complete: indexes, view, and stored procedures created."
+    THIRD:   001_seed_data.sql
+             Expected message: "Seed 001 complete: 25 products, categories, suppliers, and tags inserted."
+
+METHOD B — Using Azure Data Studio
+
+  1. Click File → Open File (or Ctrl+O)
+  2. Select the SQL file
+  3. Click the green "Run" button at the top of the query editor
+  4. Check the Results/Messages panel at the bottom
+
+METHOD C — Using sqlcmd from terminal (fastest)
+
+  Run all three files with these commands (from the App root folder):
+
+  Windows PowerShell / CMD:
+    sqlcmd -S localhost,1433 -U sa -P "YourStrong@Passw0rd" -i backend\database\migrations\001_initial_schema.sql
+    sqlcmd -S localhost,1433 -U sa -P "YourStrong@Passw0rd" -i backend\database\migrations\002_indexes_procedures.sql
+    sqlcmd -S localhost,1433 -U sa -P "YourStrong@Passw0rd" -i backend\database\seeds\001_seed_data.sql
+
+  BAS / Linux terminal:
+    sqlcmd -S localhost,1433 -U sa -P "YourStrong@Passw0rd" -i backend/database/migrations/001_initial_schema.sql
+    sqlcmd -S localhost,1433 -U sa -P "YourStrong@Passw0rd" -i backend/database/migrations/002_indexes_procedures.sql
+    sqlcmd -S localhost,1433 -U sa -P "YourStrong@Passw0rd" -i backend/database/seeds/001_seed_data.sql
+
+VERIFY THE DATA WAS INSERTED CORRECTLY
+
+  In SSMS or Azure Data Studio, run this query:
+    USE ProductCatalogDB;
+    SELECT COUNT(*) AS TotalProducts FROM Products;
+    SELECT COUNT(*) AS TotalCategories FROM Categories;
+    SELECT COUNT(*) AS TotalSuppliers FROM Suppliers;
+    SELECT COUNT(*) AS TotalTags FROM Tags;
+
+  Expected results:
+    TotalProducts:  25
+    TotalCategories: 5
+    TotalSuppliers: 27
+    TotalTags:      ~60
+
+  Also verify the view works (this is what the Node.js backend queries):
+    SELECT TOP 5 ProductID, ProductName, Category, Supplier, TagsCSV
+    FROM ProductCatalogDB.dbo.vw_ProductFull;
+
+  You should see 5 rows with product names, their category, supplier, and a
+  comma-separated list of tags.
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 6 — CONFIGURE AND RUN THE NODE.JS BACKEND
+────────────────────────────────────────────────────────────────────────────────
+
+Only do this AFTER the database is running and the migrations have been applied.
+
+STEP 6a — Create the .env file
+  Navigate to the backend folder in a terminal:
+    Windows: cd C:\Users\NnaemekaOkalla\Documents\Fiori\App\backend
+    BAS:     cd /home/user/projects/App/backend
+
+  Copy the template:
+    Windows: copy .env.example .env
+    BAS/Mac: cp .env.example .env
+
+  Open .env in a text editor (Notepad++, VS Code, or the BAS file editor).
+  Fill in these values:
+
+    NODE_ENV=development
+    PORT=3000
+    CORS_ORIGIN=http://localhost:8080
+
+    DB_HOST=localhost
+    DB_PORT=1433
+    DB_NAME=ProductCatalogDB
+    DB_USER=sa
+    DB_PASSWORD=YourStrong@Passw0rd
+    DB_ENCRYPT=false
+    DB_TRUST_CERT=true
+
+  Leave all REDIS_ lines empty (no Redis needed for local development).
+  Save the file.
+
+STEP 6b — Install Node.js dependencies
+  Still in the backend folder:
+    npm install
+
+  This installs all packages (express, mssql, winston, joi, etc.)
+  It may take 1–2 minutes. You should see no errors, only warnings (warnings are OK).
+
+STEP 6c — Start the backend
+    npm run dev
+
+  Watch the terminal output carefully:
+  ✅ GOOD output:
+    [WORKER 12345] Connecting to database...
+    [DB] Pool connected to localhost:1433/ProductCatalogDB (pool max=10)
+    [WORKER 12345] Initialising cache...
+    [CACHE] Redis not configured — using in-process L1 cache only.
+    [WORKER] Product workers registered.
+    [WORKER 12345] HTTP server listening on port 3000 (development)
+
+  ❌ BAD output — and what to do:
+    "ConnectionError: Failed to connect to localhost:1433"
+      → SQL Server is not running. Start it, then retry.
+    "Login failed for user 'sa'"
+      → Wrong password or SA not enabled. Re-do Steps A4–A5.
+    "Cannot find module"
+      → You forgot to run npm install. Run it now.
+    "EADDRINUSE :::3000"
+      → Port 3000 is already in use. Change PORT=3001 in .env and retry.
+
+STEP 6d — Verify the backend is responding
+  Open a new terminal tab and run:
+    curl http://localhost:3000/health
+
+  Expected response:
+    { "status": "UP", "database": "connected", "uptime": 5, "timestamp": "..." }
+
+  Also test the product catalog:
+    curl http://localhost:3000/api/v1/products/catalog
+
+  Expected: a large JSON response starting with:
+    { "success": true, "data": { "products": [ { "ProductID": "P001", ... } ] } }
+
+────────────────────────────────────────────────────────────────────────────────
+STEP 7 — RUN THE FRONTEND AND CONFIRM FULL INTEGRATION
+────────────────────────────────────────────────────────────────────────────────
+
+  Open a SECOND terminal tab. Navigate to the App root (NOT the backend folder):
+    Windows: cd C:\Users\NnaemekaOkalla\Documents\Fiori\App
+    BAS:     cd /home/user/projects/App
+
+  If you haven't installed frontend dependencies yet:
+    npm install
+
+  Start the SAPUI5 development server:
+    npm start
+
+  This opens the app in your browser at http://localhost:8080.
+
+  What you should see:
+  1. The home page loads with 7 KPI tiles showing counts from the DATABASE
+     (Total: 25, Active: ~23, etc.)
+  2. The Featured Products carousel shows products from the database
+  3. Navigate to Product List → 25 products appear (loaded from Node.js API)
+  4. Create a new product → it is saved to SQL Server → appears in the list
+  5. Delete a product → it is removed from SQL Server → disappears from list
+
+  If the SAPUI5 frontend shows products but you are not sure they came from the
+  backend or the local JSON file, open browser DevTools (F12) → Network tab →
+  filter for "catalog" → you should see a request to:
+    http://localhost:3000/api/v1/products/catalog  ← backend
+  (NOT to localService/mockdata/products.json)
+
+────────────────────────────────────────────────────────────────────────────────
+SUMMARY — CORRECT STARTUP SEQUENCE EVERY TIME
+────────────────────────────────────────────────────────────────────────────────
+
+  Every time you want to work on the project, start services in this order:
+
+  1. Start SQL Server
+       Option A (installed): It starts automatically with Windows
+                              OR open SQL Server Configuration Manager → start service
+       Option B (Docker):    docker start sql-catalog
+
+  2. Start the Node.js backend  (terminal 1 — stay in backend/ folder)
+       cd .../App/backend
+       npm run dev
+
+     Wait for "HTTP server listening on port 3000" before continuing.
+
+  3. Start the SAPUI5 frontend  (terminal 2 — stay in App root folder)
+       cd .../App
+       npm start
+
+  4. Open browser → http://localhost:8080
+
+────────────────────────────────────────────────────────────────────────────────
+COMMON ISSUES QUICK-REFERENCE
+────────────────────────────────────────────────────────────────────────────────
+
+  ISSUE                               SOLUTION
+  ─────────────────────────────────   ──────────────────────────────────────────
+  SQL Server not starting (Option A)  Open Services (Win+R → services.msc)
+                                      Find "SQL Server (MSSQLSERVER)"
+                                      Right-click → Start
+
+  Cannot connect on port 1433         Check TCP/IP is enabled (Step A5)
+                                      Check Windows Firewall (Step A6)
+
+  SA login fails                      Re-enable SA (Step A4)
+                                      Restart SQL Server after changes
+
+  Backend crashes at startup          Check .env file has all DB_ values
+                                      Verify SQL Server is running first
+
+  Frontend shows mock data, not DB    window.API_BASE_URL not set
+                                      Add to index.html:
+                                        <script>window.API_BASE_URL="http://localhost:3000";</script>
+                                      OR: check backend is on port 3000
+
+  CORS error in browser console       backend .env CORS_ORIGIN must include
+                                      http://localhost:8080
+
+  "Product not found" after create    The frontend model and DB are out of sync
+                                      Refresh the page — data reloads from DB
+
+================================================================================
+  END OF DATABASE SETUP GUIDE
+================================================================================

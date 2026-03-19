@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# MTA build output
+mta_archives/
+Makefile_*.mta
+
+# Credentials (never commit these)
+mssql-creds.json
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

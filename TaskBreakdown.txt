@@ -1,0 +1,520 @@
+================================================================================
+  PRODUCT CATALOG MANAGER — SAP FIORI DEMO APP
+  Project Task Breakdown & Implementation Summary
+  Prepared by: Nemmy
+  Platform: SAP Business Application Studio (BAS) | SAPUI5 1.120.0
+================================================================================
+
+
+================================================================================
+OVERVIEW
+================================================================================
+
+This document outlines the step-by-step tasks undertaken to design, build,
+configure, debug, and successfully run a full-stack SAP Fiori CRUD demo
+application called "Product Catalog Manager" using SAPUI5 and SAP Business
+Application Studio (BAS).
+
+The app demonstrates core SAP Fiori development concepts including:
+  - MVC architecture with XMLViews and JavaScript controllers
+  - Client-side CRUD operations backed by a JSONModel
+  - SAP Fiori UX patterns (DynamicPage, Carousel, Accordion Panels)
+  - Routing and navigation using sap.m.routing.Router
+  - Advanced search, filtering, sorting, and pagination
+  - SAP Horizon theme (sap_horizon) — the latest SAP design language
+
+
+================================================================================
+PHASE 1: PROJECT SCOPING AND ARCHITECTURE DESIGN
+================================================================================
+
+Task 1.1 — Define App Requirements
+-----------------------------------------------------------------------
+  - Identified the need for a demo CRUD app with SAP Fiori design
+  - Defined core features: Create, Read, Update, Delete for products
+  - Specified advanced features: search, filter, sort, pagination
+  - Specified UI components: Carousel (featured products), accordion
+    Panels (product detail), KPI tiles (dashboard), ViewSettingsDialog
+    (sorting), MultiInput (tags), RatingIndicator
+  - Confirmed design language: SAP Horizon (sap_horizon) theme,
+    visually aligned with SAP S/4HANA Fiori applications
+
+Task 1.2 — Define App Architecture
+-----------------------------------------------------------------------
+  - Chose SAPUI5 as the UI framework (JavaScript, XML-based views)
+  - Chose MVC pattern: Models (JSONModel), Views (XML), Controllers (JS)
+  - Chose JSONModel with local mock data (no backend required for demo)
+  - Defined app namespace: com.demo.productcatalog
+  - Defined 5 views: App, Home, ProductList, ProductDetail, ProductForm
+  - Defined 5 routes: home, productList, productDetail, productForm,
+    productEdit
+  - Decided on client-side pagination (array slicing into viewModel)
+  - Decided to load SAPUI5 from public CDN (ui5.sap.com) for simplicity
+
+
+================================================================================
+PHASE 2: PROJECT SCAFFOLDING AND CONFIGURATION
+================================================================================
+
+Task 2.1 — Create Project Folder Structure
+-----------------------------------------------------------------------
+  Created the following directory structure:
+
+  App/
+  ├── package.json                  — npm project config + run scripts
+  ├── ui5.yaml                      — UI5 Tooling configuration
+  ├── webapp/
+  │   ├── index.html                — App entry point, SAPUI5 bootstrap
+  │   ├── manifest.json             — App descriptor (routing, models)
+  │   ├── Component.js              — UIComponent (router init)
+  │   ├── controller/               — 5 JS controller files
+  │   ├── view/                     — 5 XML view files
+  │   ├── model/
+  │   │   ├── models.js             — Device model factory
+  │   │   └── formatter.js          — 8 formatter functions
+  │   ├── localService/
+  │   │   └── mockdata/
+  │   │       └── products.json     — 25 mock products (5 categories)
+  │   ├── i18n/
+  │   │   └── i18n.properties       — 120+ internationalisation keys
+  │   └── css/
+  │       └── style.css             — Custom SAP Horizon-aligned styles
+
+Task 2.2 — Configure package.json
+-----------------------------------------------------------------------
+  - Defined npm project name, version, description, and author
+  - Added "start" script: ui5 serve -o index.html
+  - Added "build" script: ui5 build --all
+  - Added devDependency: @ui5/cli ^3.9.0
+  - Resolved issue: original package.json was missing devDependencies,
+    causing "ui5 command not found" errors when running the app
+
+Task 2.3 — Configure ui5.yaml
+-----------------------------------------------------------------------
+  - Set specVersion: "3.2"
+  - Set project type: application
+  - Set framework to OpenUI5 version 1.120.0
+    (Note: changed from SAPUI5 to OpenUI5 to avoid SAP private npm
+    registry dependency — the app still loads full SAPUI5 from CDN)
+  - Listed required libraries: sap.m, sap.f, sap.ui.core,
+    sap.ui.layout, sap.ui.unified
+  - Removed fiori-tools-proxy middleware (not required since SAPUI5
+    loads directly from CDN in index.html)
+  - Resolved issue: YAML indentation errors causing parse failures
+
+Task 2.4 — Configure index.html
+-----------------------------------------------------------------------
+  - Bootstrapped SAPUI5 1.120.0 from public CDN (ui5.sap.com)
+  - Applied sap_horizon theme (latest SAP Fiori design language)
+  - Registered app namespace resource root:
+    "com.demo.productcatalog": "./"
+  - Enabled async module loading for performance
+  - Used ComponentSupport for declarative component bootstrapping
+
+Task 2.5 — Configure manifest.json
+-----------------------------------------------------------------------
+  - Defined sap.app metadata: id, type, title, description, version
+  - Defined sap.ui: technology, device types, app icon
+  - Defined sap.ui5 section:
+      - rootView: com.demo.productcatalog.view.App
+      - dependencies: minUI5Version 1.120.0 + library list
+      - 3 models: i18n (ResourceModel), products (JSONModel from URL),
+        view (JSONModel for UI state)
+      - routing: 5 routes with 4 targets
+      - CSS resource: css/style.css
+      - contentDensities: compact (desktop) + cozy (mobile/tablet)
+  - Critical fix: Reordered routes so productForm (products/new) appears
+    BEFORE productDetail (products/{productId}) to prevent the router
+    from matching "new" as a productId
+
+
+================================================================================
+PHASE 3: DATA LAYER IMPLEMENTATION
+================================================================================
+
+Task 3.1 — Create Mock Product Data (products.json)
+-----------------------------------------------------------------------
+  - Created 25 realistic product entries across 5 categories:
+      Electronics, Furniture, Clothing, Food & Beverage, Office Supplies
+  - Each product contains 18 fields: ProductID, ProductName, Category,
+    SubCategory, Description, Price, Currency, Stock, Unit, Rating,
+    RatingCount, Status, Supplier, Tags, CreatedAt, ModifiedAt,
+    Featured, Discount, Weight, Dimensions
+  - Assigned Featured: true to 6 products for the home carousel
+  - Varied Status values: Active (majority), Inactive, Discontinued
+  - Added realistic suppliers, descriptions, and physical attributes
+
+Task 3.2 — Build formatter.js
+-----------------------------------------------------------------------
+  Implemented 8 utility formatter functions used in XML view bindings:
+  - formatPrice(price, currency)       → "$ 1,299.99"
+  - formatStatus(status)               → sap.ui.core.ValueState
+  - formatStatusText(status)           → display label
+  - formatRating(rating)               → "4.7"
+  - formatStockState(stock)            → ValueState (Error/Warning/Success)
+  - formatDate(date)                   → "Mar 15, 2024"
+  - formatDiscount(discount)           → "20% OFF" or ""
+  - formatDiscountedPrice(price, disc) → discounted price string
+
+Task 3.3 — Build models.js
+-----------------------------------------------------------------------
+  - Implemented createDeviceModel() using sap.ui.Device
+  - Sets OneWay binding mode to prevent accidental writes
+  - Used in Component.js to power responsive layout decisions
+
+
+================================================================================
+PHASE 4: VIEW IMPLEMENTATION
+================================================================================
+
+Task 4.1 — App.view.xml (Root Shell)
+-----------------------------------------------------------------------
+  - Implemented sap.m.Shell wrapping a NavContainer (id: navContainer)
+  - NavContainer is the router's target container (controlId in manifest)
+  - All routed views are injected as pages into this NavContainer
+
+Task 4.2 — Home.view.xml (Dashboard)
+-----------------------------------------------------------------------
+  - Used sap.f.DynamicPage as root layout
+  - DynamicPageHeader: 4 GenericTile KPI tiles (Total Products, Active
+    Products, Total Categories, Featured Items) with NumericContent
+  - Featured Products: sap.m.Carousel (pages aggregation, loop=true)
+    with FlexBox cards showing product name, category, price, and a
+    View Details button per featured product
+  - Quick Actions: HBox with 4 Buttons (Browse, Add Product, Stats, Help)
+  - Recent Products: sap.m.List with ObjectListItem entries showing
+    name, price, category, status, and supplier
+  - Fixes applied:
+      - Removed invalid <f:subheading> aggregation (not supported by
+        DynamicPageTitle)
+      - Removed invalid style="width:160px" HTML attribute on GenericTile
+        (SAPUI5 controls do not accept raw HTML style attributes)
+      - Removed press event from FlexBox in Carousel (FlexBox is a
+        layout container and has no press event)
+      - Changed items= to pages= on Carousel (correct aggregation name)
+
+Task 4.3 — ProductList.view.xml (Product List with CRUD)
+-----------------------------------------------------------------------
+  - Used sap.f.DynamicPage with filter toolbar in the header
+  - Filter toolbar: SearchField (live search), Category Select dropdown,
+    Status Select dropdown, Sort button, Reset button
+  - Table: sap.m.Table in MultiSelect mode bound to
+    viewModel>/displayedProducts with columns:
+    Row#, Product Name (ObjectIdentifier), Category, Price, Stock
+    (ObjectStatus), Status (ObjectStatus), Rating (RatingIndicator),
+    Supplier, Actions (Edit + Delete buttons)
+  - Pagination toolbar: First, Previous, "Page X of Y", Next, Last
+    buttons with item count display
+  - Inline ViewSettingsDialog for sort configuration
+  - Fixed: Removed invalid <f:subheading> aggregation
+  - Fixed: Kept statusSelect ID unique (formStatusSelect in ProductForm)
+
+Task 4.4 — ProductDetail.view.xml (Product Detail with Accordions)
+-----------------------------------------------------------------------
+  - Used sap.f.DynamicPage with product name as heading, action
+    buttons (Edit, Delete, Back) in the title actions
+  - DynamicPageHeader: key stats (Price, Stock, Rating with
+    RatingIndicator, Status badge, Discount badge)
+  - Content: 4 expandable sap.m.Panel controls (accordion behaviour):
+      Panel 1 — General Information: ID, Name, Category, SubCategory,
+                Status, Supplier, Created/Modified dates
+      Panel 2 — Pricing & Inventory: Price, Currency, Stock, Unit,
+                Discount, Discounted Price
+      Panel 3 — Description & Tags: Product description text, tag list
+      Panel 4 — Physical Specifications: Weight, Dimensions
+  - Used sap.ui.layout.form.SimpleForm inside each panel
+  - Fixed: Removed invalid <f:subheading> aggregation
+
+Task 4.5 — ProductForm.view.xml (Create / Edit Form)
+-----------------------------------------------------------------------
+  - Used sap.f.DynamicPage with showFooter="true" to show the sticky
+    footer bar containing Save and Cancel buttons
+  - Form sections using sap.ui.layout.form.SimpleForm:
+      Basic Info: ProductName (required), Category (Select, required),
+                  SubCategory, Status
+      Pricing:    Price (required), Currency (Select), Discount (Slider
+                  0-50% with live label)
+      Inventory:  Stock (required), Unit (Select)
+      Details:    Description (TextArea), Tags (MultiInput), Featured
+                  (CheckBox)
+      Supplier:   Supplier name input
+      Physical:   Weight, Dimensions
+  - Fixes applied:
+      - Added showFooter="true" on DynamicPage (footer hidden by default)
+      - Renamed categorySelect → formCategorySelect (unique ID)
+      - Renamed statusSelect → formStatusSelect (unique ID)
+      - Removed invalid <f:subheading> aggregation
+
+
+================================================================================
+PHASE 5: CONTROLLER IMPLEMENTATION
+================================================================================
+
+Task 5.1 — App.controller.js
+-----------------------------------------------------------------------
+  - Minimal controller — routing is handled entirely by the router
+  - Serves as the base attachment point for the Shell/NavContainer
+
+Task 5.2 — Home.controller.js
+-----------------------------------------------------------------------
+  - onInit: creates viewModel, attaches routePatternMatched for "home"
+    route instead of requestCompleted (race condition fix — see below)
+  - _onDataLoaded: computes stats, featured products, recent products
+    from the products model; uses attachEventOnce fallback if data
+    hasn't loaded yet
+  - _computeStats: calculates total, active, inactive, discontinued,
+    featured counts, and unique category count
+  - _prepareFeaturedProducts: filters Featured=true, max 6 items
+  - _prepareRecentProducts: sorts by CreatedAt desc, returns top 5
+  - Navigation handlers: onNavToProductList, onNavToCreateProduct,
+    onCarouselItemPress, onRecentProductPress
+  - Utility handlers: onShowStats (MessageBox), onShowAbout
+  - Critical fix: replaced requestCompleted event with
+    routePatternMatched to resolve timing race condition where
+    products.json loaded before the Home view was instantiated,
+    causing the event to fire before the listener was attached
+
+Task 5.3 — ProductList.controller.js
+-----------------------------------------------------------------------
+  - State properties: _iPageSize=10, _iCurrentPage, _sSearchQuery,
+    _sFilterCategory, _sFilterStatus, _sSortBy, _bSortDesc,
+    _aAllProducts, _aFilteredProducts
+  - onInit: initialises viewModel, loads products from model, attaches
+    routePatternMatched to refresh data on every visit
+  - _applyFiltersAndSort: applies search (ProductName, Description,
+    Supplier), category filter, status filter, and sort in sequence
+  - _updatePage(iPage): slices _aFilteredProducts for the current page,
+    injects _rowIndex onto each item, updates pagination state in model
+  - Search handler: onSearch — live search via liveChange
+  - Filter handlers: onCategoryFilterChange, onStatusFilterChange
+  - Sort handler: onSortPress opens ViewSettingsDialog; onSortConfirm
+    reads sort key and descending flag, applies to data
+  - Reset: onResetFilters clears all filter/sort state
+  - Pagination: onFirstPage, onPrevPage, onNextPage, onLastPage
+  - CRUD: onAddProduct (navigate), onEditProduct (navigate with ID),
+    onDeleteProduct (MessageBox confirm → splice from array),
+    onDeleteSelected (multi-select delete)
+
+Task 5.4 — ProductDetail.controller.js
+-----------------------------------------------------------------------
+  - onInit: attaches routePatternMatched for "productDetail" route
+  - _onRouteMatched: finds product index in array using productId
+    from route arguments, binds view element to that product
+  - _findProductIndex: searches products array by ProductID
+  - onEditProduct: navigates to productEdit route with current productId
+  - onDeleteProduct: MessageBox confirm → splices product from array →
+    navigates back to productList
+  - onNavBack: uses History API to go back or falls back to productList
+  - onExpandAll / onCollapseAll: toggles all accordion panels
+
+Task 5.5 — ProductForm.controller.js
+-----------------------------------------------------------------------
+  - onInit: creates viewModel with form state, attaches to both
+    productForm and productEdit routes
+  - _onRouteMatched: determines create vs edit mode from route name
+  - _initFormModel: populates empty product template for create mode
+  - _loadProductData: deep copies existing product into formData for
+    edit mode; populates MultiInput with existing tags
+  - _getEmptyProduct: returns default product object with today's date
+  - _generateProductId: scans existing products for highest numeric
+    ID suffix and increments it (P001 → P026, etc.)
+  - _validateForm: validates ProductName, Category, Price, Stock;
+    sets ValueState Error/None on each input for visual feedback
+  - onSave: collects tags → validates → CREATE (push new product to
+    array with generated ID) or EDIT (merge changes in place) →
+    updates model → shows MessageToast → navigates to productDetail
+  - onCancel: compares current formData to original snapshot; if
+    changed shows "Unsaved Changes" MessageBox before navigating away
+  - onAddTag: adds Token to MultiInput on Enter/submit
+  - onTokenUpdate: removes tokens when user clicks X on a tag
+  - onDiscountChange: syncs slider value to viewModel live label
+  - Critical fix: updated byId("categorySelect") to
+    byId("formCategorySelect") — mismatched ID caused silent null
+    reference, preventing validation feedback from appearing
+
+
+================================================================================
+PHASE 6: DEBUGGING AND ISSUE RESOLUTION
+================================================================================
+
+Issue 1 — npm install failed: "ui5@* not found in registry"
+-----------------------------------------------------------------------
+  Root Cause: The original package.json had no devDependencies.
+  Running "npx ui5" looked for a package named "ui5" (doesn't exist).
+  Fix: Added "@ui5/cli": "^3.9.0" to devDependencies. The ui5 CLI
+  command comes from @ui5/cli, not a package named "ui5".
+
+Issue 2 — ui5.yaml parse failure: "bad indentation of mapping entry"
+-----------------------------------------------------------------------
+  Root Cause: A leading space before "specVersion:" on line 1 caused
+  YAML's strict indentation parser to reject the file.
+  Fix: Rewrote the file with correct zero-indentation on all top-level
+  keys using the terminal cat heredoc command.
+
+Issue 3 — 404 errors for models.js and formatter.js
+-----------------------------------------------------------------------
+  Root Cause: Files were uploaded to BAS with .json extension instead
+  of .js (formatter.json, models.json). The server correctly returned
+  404 for models.js since only models.json existed.
+  Fix: Renamed both files using mv command in BAS terminal:
+    mv webapp/model/formatter.json webapp/model/formatter.js
+    mv webapp/model/models.json webapp/model/models.js
+
+Issue 4 — XML view error: "Cannot add direct child without default
+           aggregation — sap.f.DynamicPageTitle <f:subheading>"
+-----------------------------------------------------------------------
+  Root Cause: sap.f.DynamicPageTitle does not have a "subheading"
+  aggregation. Valid aggregations are: heading, snappedHeading,
+  expandedHeading, actions, navigationActions, content, breadcrumbs.
+  Fix: Removed <f:subheading> blocks from all 4 affected views.
+
+Issue 5 — Duplicate control ID warnings: "categorySelect" and
+           "statusSelect" used in both ProductList and ProductForm
+-----------------------------------------------------------------------
+  Root Cause: SAPUI5 component IDs must be unique across all views.
+  Using the same ID in two different views causes conflicts.
+  Fix: Renamed both IDs in ProductForm.view.xml:
+    categorySelect → formCategorySelect
+    statusSelect   → formStatusSelect
+  Also updated corresponding byId() calls in ProductForm.controller.js.
+
+Issue 6 — GenericTile invalid attributes: style and press on FlexBox
+-----------------------------------------------------------------------
+  Root Cause 1: SAPUI5 controls do not accept raw HTML "style"
+  attribute in XML views. Width must be set via CSS class or a
+  control-specific width property.
+  Root Cause 2: sap.m.FlexBox is a layout container with no "press"
+  event. Only interactive controls (Button, Link, ListItem) have press.
+  Fix: Removed style="width:160px" from all 4 GenericTile instances.
+       Removed press=".onCarouselItemPress" from the FlexBox template.
+       The press handler remains on the Button inside the FlexBox.
+
+Issue 7 — Carousel binding: "Unknown attribute key: items"
+-----------------------------------------------------------------------
+  Root Cause: sap.m.Carousel uses "pages" as its items aggregation,
+  not "items". The "items" aggregation belongs to List/Table/Select.
+  Fix: Changed items="{viewModel>/featuredProducts}" to
+       pages="{viewModel>/featuredProducts}" on the Carousel.
+
+Issue 8 — Home page showed no products (empty carousel and list)
+-----------------------------------------------------------------------
+  Root Cause: Timing race condition. The products JSONModel loaded from
+  URL during Component.init(), firing requestCompleted before the Home
+  view was created and before attachRequestCompleted was called. The
+  event had already fired and would not fire again.
+  Fix: Replaced requestCompleted listener with routePatternMatched on
+  the "home" route, guaranteeing _onDataLoaded runs every time the
+  Home view is navigated to, after the view and model are ready.
+  Added an attachEventOnce("requestCompleted") fallback for the edge
+  case where the route matches before products.json has finished loading.
+
+Issue 9 — "Add New Product" opened Product Detail with ID "new"
+-----------------------------------------------------------------------
+  Root Cause: In manifest.json, the route "productDetail" with pattern
+  "products/{productId}" was listed BEFORE "productForm" with pattern
+  "products/new". The SAPUI5 router matches routes in declaration order,
+  so "products/new" was captured by the dynamic segment {productId}
+  with productId="new" before reaching the static productForm route.
+  Fix: Reordered routes in manifest.json — moved "productForm" entry
+  above "productDetail" so the static pattern matches first.
+
+Issue 10 — Save/Cancel buttons not visible on ProductForm
+-----------------------------------------------------------------------
+  Root Cause: sap.f.DynamicPage has a showFooter property that defaults
+  to false. The <f:footer> aggregation was defined in XML but invisible.
+  Fix: Added showFooter="true" to the DynamicPage opening tag.
+
+Issue 11 — Create Product button did nothing on click
+-----------------------------------------------------------------------
+  Root Cause: ProductForm.controller.js called this.byId("categorySelect")
+  in _validateForm() and _clearValidationStates(). Since the ID was
+  renamed to "formCategorySelect", byId() returned null. The null
+  reference silently prevented the red error state from appearing on
+  the Category Select. Validation returned false but the visual
+  feedback was absent, making it appear as though nothing happened.
+  Fix: Updated both byId() references from "categorySelect" to
+  "formCategorySelect". Also added a || [] guard on getData().products
+  to prevent crashes if the model has not yet loaded.
+
+
+================================================================================
+PHASE 7: STYLING AND UX POLISH
+================================================================================
+
+Task 7.1 — Custom CSS (style.css)
+-----------------------------------------------------------------------
+  - Defined .productCard with hover box-shadow and transition effects
+  - Defined .featuredCarousel with fixed height (300px) and styling
+  - Defined .carouselPage with gradient background per category colour
+  - Defined .carouselProductName and .carouselProductPrice typography
+  - Defined .kpiTile with consistent sizing and hover states
+  - Defined .statusBadge variants: Active (green), Inactive (amber),
+    Discontinued (red)
+  - Defined .paginationToolbar for bottom-of-table pagination strip
+  - Defined .accordionPanel for product detail panel styling
+  - Defined .detailHeader with gradient background
+  - Defined .discountBadge in red for promotional display
+  - Added responsive media queries for mobile screen breakpoints
+  - Added @keyframes animation for card entrance effect
+  - Used SAP Horizon CSS design tokens where applicable
+
+
+================================================================================
+PHASE 8: DOCUMENTATION AND DEMO PREPARATION
+================================================================================
+
+Task 8.1 — FioriAppDocumentation.txt
+-----------------------------------------------------------------------
+  Created a 7-section developer documentation file covering:
+  Section 1: Introduction to SAP Fiori, SAPUI5, and BAS
+  Section 2: Full project structure explanation
+  Section 3: Step-by-step setup guide (local + BAS)
+  Section 4: Feature walkthrough (all 5 views)
+  Section 5: Key code lines explained for demo presentation
+  Section 6: SAP Fiori design principles applied in the app
+  Section 7: How to extend the app (OData, charts, auth, deployment)
+
+Task 8.2 — DemoProducts.json
+-----------------------------------------------------------------------
+  Created a reference file with 10 realistic demo products to create
+  manually through the form during a live demo:
+  - 2 Electronics, 2 Furniture, 2 Clothing, 2 Food & Beverage,
+    2 Office Supplies
+  - Each entry maps directly to the Create Product form fields
+  - Varied discounts, featured flags, and stock levels for visual impact
+
+Task 8.3 — TaskBreakdown.txt (this document)
+-----------------------------------------------------------------------
+  Compiled this professional task breakdown summarising the entire
+  project from scoping through implementation, debugging, and delivery.
+
+
+================================================================================
+FINAL APP STATE
+================================================================================
+
+  Views:        5 (App, Home, ProductList, ProductDetail, ProductForm)
+  Controllers:  5 (one per view)
+  Routes:       5 (home, productList, productDetail, productForm,
+                   productEdit)
+  Mock Products: 25 (pre-loaded) + unlimited via Create form
+  Categories:   5 (Electronics, Furniture, Clothing,
+                   Food & Beverage, Office Supplies)
+  Features working:
+    [x] Dashboard with KPI tiles and featured product Carousel
+    [x] Recent products list on dashboard
+    [x] Full product list with table and column headers
+    [x] Live search across name, description, supplier
+    [x] Filter by category and status
+    [x] Sort via ViewSettingsDialog
+    [x] Client-side pagination (10 per page)
+    [x] Product detail with 4 accordion panels
+    [x] Create product with form validation
+    [x] Edit product with pre-filled form and dirty check
+    [x] Delete product with confirmation dialog
+    [x] SAP Horizon theme throughout
+    [x] Responsive layout (compact/cozy content density)
+
+================================================================================
+END OF TASK BREAKDOWN
+================================================================================
