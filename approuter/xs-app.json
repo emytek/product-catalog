@@ -8,14 +8,12 @@
     {
       "source":      "^/api/(.*)$",
       "target":      "/api/$1",
-      "destination": "api-backend",
-      "description": "Route all /api/* requests to the Node.js backend service"
+      "destination": "api-backend"
     },
     {
       "source":      "^/(.*)$",
       "target":      "/$1",
-      "localDir":    "webapp",
-      "description": "Serve SAPUI5 frontend static files for all other routes"
+      "localDir":    "webapp"
     }
   ]
 }

@@ -27,7 +27,7 @@ const os      = require("os");
 const config  = require("./src/config/environment");
 const logger  = require("./src/utils/logger");
 
-const NUM_WORKERS = config.app.isProduction ? os.cpus().length : 1;
+const NUM_WORKERS = 1;
 
 // ── Master process ─────────────────────────────────────────────────────────────
 if (cluster.isMaster && NUM_WORKERS > 1) {
