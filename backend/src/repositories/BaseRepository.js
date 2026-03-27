@@ -6,76 +6,111 @@
  * Abstract base class for all repository implementations.
  *
  * Responsibilities:
- *   • Provides access to the shared connection pool
- *   • Exposes a convenience method to create a new Request
- *   • Houses a thin transaction helper
+ *   • Provides access to the shared HANA connection pool
+ *   • Exposes a convenience method to create a new HanaRequest
+ *   • Houses the transaction helper (begin / callback / commit|rollback)
  *   • Enforces the Repository interface (subclasses may override)
  *
  * SOLID — Open/Closed: subclasses extend without modifying this class.
- * SOLID — DIP: repositories depend on the pool abstraction, not mssql directly.
+ * SOLID — DIP: repositories depend on the pool abstraction, not the
+ *              @sap/hana-client driver directly.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * SQL SERVER REFERENCE (mssql) — original implementation notes
+ * ─────────────────────────────────────────────────────────────────────────────
+ * The original code used:
+ *   const { getPool, sql } = require("../config/database");
+ *   async getRequest() { return pool.request(); }   // mssql Request
+ *   // withTransaction used sql.Transaction(pool) + sql.Request(transaction)
+ *
+ * HANA equivalent:
+ *   pool.beginTransaction() acquires a dedicated connection + setAutoCommit(false)
+ *   HanaTransactionContext.request() creates a HanaRequest on that connection
+ *   pool.commitTransaction() / pool.rollbackTransaction() close the tx
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 
-const { getPool, sql } = require("../config/database");
+const { getPool, sql, HanaTransactionContext } = require("../config/database");
 const { DatabaseError } = require("../utils/errors");
 const logger = require("../utils/logger");
 
 class BaseRepository {
     constructor(tableName) {
-        /** Logical table name — used in generic log messages. */
+        /** Logical table name — used in log messages. */
         this.tableName = tableName;
     }
 
+    // ── Request factory ───────────────────────────────────────────────────────
+
     /**
-     * Returns a new mssql Request bound to the shared pool.
-     * @returns {Promise<import("mssql").Request>}
+     * Returns a new HanaRequest backed by the shared connection pool.
+     * The connection is acquired lazily when request.query() is called.
+     * @returns {Promise<import("../config/database").HanaRequest>}
      */
     async getRequest() {
         const pool = await getPool();
         return pool.request();
     }
 
+    // ── Transaction helper ────────────────────────────────────────────────────
+
     /**
-     * Executes a callback inside a SQL Server transaction.
-     * If the callback throws, the transaction is rolled back.
+     * Executes a callback inside a HANA transaction.
+     * If the callback throws, the transaction is rolled back automatically.
      *
-     * Usage:
-     *   await this.withTransaction(async (transaction) => {
-     *       const req = new sql.Request(transaction);
-     *       await req.query("INSERT ...");
-     *       await req.query("UPDATE ...");
+     * The callback receives a HanaTransactionContext which exposes
+     * .request() so repositories can create bound HanaRequests without
+     * needing access to the raw connection.
+     *
+     * Usage (identical to the old mssql pattern — only the request()
+     * call changes from `new sql.Request(tx)` to `tx.request()`):
+     *
+     *   await this.withTransaction(async (tx) => {
+     *       const req = tx.request();
+     *       req.input("id", sql.NVarChar(10), "P001");
+     *       await req.query('INSERT INTO "Products" ...');
      *   });
      *
-     * @param {function(import("mssql").Transaction): Promise<any>} callback
+     * @param {function(HanaTransactionContext): Promise<any>} callback
      * @returns {Promise<any>}
+     *
+     * ── SQL SERVER REFERENCE ──────────────────────────────────────────────────
+     * Original mssql version:
+     *   const transaction = new sql.Transaction(pool);
+     *   await transaction.begin();
+     *   const result = await callback(transaction);
+     *   await transaction.commit();
+     *   // In callback: const req = new sql.Request(transaction);
+     * ─────────────────────────────────────────────────────────────────────────
      */
     async withTransaction(callback) {
-        const pool        = await getPool();
-        const transaction = new sql.Transaction(pool);
+        const pool = await getPool();
+        const conn = await pool.beginTransaction();
+        const txCtx = new HanaTransactionContext(conn);
 
         try {
-            await transaction.begin();
-            const result = await callback(transaction);
-            await transaction.commit();
+            const result = await callback(txCtx);
+            await pool.commitTransaction(conn);
             return result;
         } catch (err) {
-            try {
-                await transaction.rollback();
-            } catch (rollbackErr) {
-                logger.error("[DB] Transaction rollback failed:", rollbackErr.message);
-            }
-            // Re-wrap mssql errors so the caller only sees domain errors
-            if (err.number) {
+            await pool.rollbackTransaction(conn);
+
+            // Re-wrap HANA driver errors so the caller only sees domain errors
+            // HANA errors carry a numeric .code (not .number like mssql)
+            if (err.code && typeof err.code === "number") {
                 throw new DatabaseError(`Database operation failed: ${err.message}`);
             }
             throw err;
         }
     }
 
+    // ── Query helpers ─────────────────────────────────────────────────────────
+
     /**
      * Convenience: execute a parameterised query via the pool.
      * @param {string}   queryText
-     * @param {function(import("mssql").Request): void} paramBuilder - adds .input() calls
-     * @returns {Promise<import("mssql").IResult<any>>}
+     * @param {function(HanaRequest): void} paramBuilder — calls .input() on the request
+     * @returns {Promise<{recordset: object[], rowsAffected: number[]}>}
      */
     async query(queryText, paramBuilder = () => {}) {
         try {
@@ -83,7 +118,7 @@ class BaseRepository {
             paramBuilder(request);
             return await request.query(queryText);
         } catch (err) {
-            if (err.number) {
+            if (err.code && typeof err.code === "number") {
                 throw new DatabaseError(`Query failed on ${this.tableName}: ${err.message}`);
             }
             throw err;
@@ -92,9 +127,11 @@ class BaseRepository {
 
     /**
      * Convenience: execute a stored procedure via the pool.
+     * Note: most stored-procedure logic is replaced by inline SQL in the HANA
+     * repositories.  This method is retained for compatibility.
      * @param {string}   procName
-     * @param {function(import("mssql").Request): void} paramBuilder
-     * @returns {Promise<import("mssql").IResult<any>>}
+     * @param {function(HanaRequest): void} paramBuilder
+     * @returns {Promise<{recordset: object[], output: object}>}
      */
     async exec(procName, paramBuilder = () => {}) {
         try {
@@ -102,7 +139,7 @@ class BaseRepository {
             paramBuilder(request);
             return await request.execute(procName);
         } catch (err) {
-            if (err.number) {
+            if (err.code && typeof err.code === "number") {
                 throw new DatabaseError(`Stored procedure ${procName} failed: ${err.message}`);
             }
             throw err;

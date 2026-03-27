@@ -1,0 +1,593 @@
+================================================================================
+STEP-BY-STEP GUIDE: CREATING THE TRADE CARD CUSTOM BUSINESS OBJECT (CBO)
+SAP S/4HANA — RESTful ABAP Programming Model (RAP)
+================================================================================
+Purpose  : Create ZARDOVA_TRADE_CARD as the central master business object
+           that the Trade Card, Trade Finance, and Trade Operations apps
+           will all read from and write to.
+Tool     : SAP ABAP Development Tools (ADT) in Eclipse
+Prereq   : ADT installed and connected to your S/4HANA development system
+================================================================================
+
+
+OVERVIEW OF WHAT YOU ARE BUILDING
+────────────────────────────────────
+You are creating a RAP Business Object. Think of it in three layers:
+
+  Layer 1 — DATABASE TABLE        (stores the actual data)
+  Layer 2 — CDS VIEWS             (defines how the data is read and shaped)
+  Layer 3 — BEHAVIOUR DEFINITION  (defines what actions can be done on it)
+  Layer 4 — SERVICE BINDING       (exposes it as an OData API for the apps)
+
+The whole thing builds on top of itself in order — each step depends on the
+previous one. Do not skip or reorder the steps.
+
+
+================================================================================
+STEP 1 — CREATE A PACKAGE
+================================================================================
+A package is a container that groups all your objects together.
+
+  1. Open Eclipse with ADT and connect to your S/4HANA system.
+
+  2. In the Project Explorer panel on the left, right-click your system
+     connection → New → ABAP Package.
+
+  3. Fill in:
+       Name         : ZARDOVA_TRADE
+       Description  : Ardova Trade and Supply Objects
+       Package type : Development
+
+  4. When asked about a transport request:
+       Select "Create new request"
+       Description: Ardova Trade CBO Development
+       Note the transport number — you will use it for all objects you create.
+
+  5. Click Finish.
+
+  Result: You now have a folder called ZARDOVA_TRADE in your project explorer.
+          Every object you create from this point goes into this package.
+
+
+================================================================================
+STEP 2 — CREATE THE DATABASE TABLE
+================================================================================
+This is where all the Trade Card data will actually be stored in HANA.
+
+  1. Right-click the ZARDOVA_TRADE package → New → Other ABAP Repository Object.
+
+  2. Search for "Database Table" → Select it → Next.
+
+  3. Fill in:
+       Package     : ZARDOVA_TRADE
+       Name        : ZARDOVA_TRADE_CARD
+       Description : Ardova Trade Card Master Table
+
+  4. Click Finish. ADT opens a text editor with a template.
+
+  5. Replace the template content with the following:
+
+  ─────────────────────────────────────────────────────────────────────────────
+  @EndUserText.label : 'Ardova Trade Card Master'
+  @AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+  @AbapCatalog.tableCategory : #TRANSPARENT
+  @AbapCatalog.deliveryClass : #A
+  @AbapCatalog.dataMaintenance : #RESTRICTED
+
+  define table zardova_trade_card {
+    key client            : abap.clnt not null;
+    key trade_card_id     : abap.char(20) not null;
+    status                : abap.char(20);
+    contract_type         : abap.char(2);
+    product_type          : abap.char(10);
+    customer_name         : abap.char(80);
+    customer_bp_id        : abap.char(10);
+    supplier_name         : abap.char(80);
+    supplier_bp_id        : abap.char(10);
+    total_volume_mt       : abap.dec(15,3);
+    total_volume_litres   : abap.dec(18,3);
+    pricing_type          : abap.char(1);
+    fixed_price_usd       : abap.dec(13,4);
+    pricing_formula       : abap.char(100);
+    premium_usd_mt        : abap.dec(10,4);
+    delivery_terms        : abap.char(30);
+    laycan_start          : abap.dats;
+    laycan_end            : abap.dats;
+    load_port             : abap.char(50);
+    discharge_port        : abap.char(50);
+    purchase_contract_id  : abap.char(10);
+    pricing_period_start  : abap.dats;
+    pricing_period_end    : abap.dats;
+    total_triggered_mt    : abap.dec(15,3);
+    total_untriggered_mt  : abap.dec(15,3);
+    cargo_value_prov      : abap.dec(18,2);
+    cargo_value_final     : abap.dec(18,2);
+    rollover_count        : abap.numc(2);
+    created_by            : abp_creation_user;
+    created_at            : abp_creation_tstmpl;
+    last_changed_by       : abp_lastchange_user;
+    last_changed_at       : abp_lastchange_tstmpl;
+    local_last_changed_at : abp_locinst_lastchange_tstmpl;
+  }
+  ─────────────────────────────────────────────────────────────────────────────
+
+  6. Press Ctrl+S to save. Assign to transport request when prompted.
+
+  7. Press Ctrl+F3 (or right-click → Activate) to activate the table.
+
+  Result: A HANA database table is created. You can verify it by going to
+          transaction SE16N and entering ZARDOVA_TRADE_CARD — it will show
+          as an empty table ready to receive data.
+
+
+================================================================================
+STEP 3 — CREATE THE CDS INTERFACE VIEW
+================================================================================
+This view sits on top of the database table and is the internal data layer
+that the business logic reads from. Think of it as the "raw" data view.
+
+  1. Right-click ZARDOVA_TRADE package → New → Other ABAP Repository Object.
+
+  2. Search for "Data Definition" → Select it → Next.
+
+  3. Fill in:
+       Package     : ZARDOVA_TRADE
+       Name        : ZI_ArdovaTradeCard
+       Description : Interface View - Ardova Trade Card
+
+  4. Select Template: "Define View Entity" → Finish.
+
+  5. Replace the template with the following:
+
+  ─────────────────────────────────────────────────────────────────────────────
+  @AccessControl.authorizationCheck: #NOT_REQUIRED
+  @EndUserText.label: 'Interface View - Ardova Trade Card'
+
+  define view entity ZI_ArdovaTradeCard
+    as select from zardova_trade_card
+  {
+    key trade_card_id       as TradeCardId,
+        status              as Status,
+        contract_type       as ContractType,
+        product_type        as ProductType,
+        customer_name       as CustomerName,
+        customer_bp_id      as CustomerBpId,
+        supplier_name       as SupplierName,
+        supplier_bp_id      as SupplierBpId,
+        total_volume_mt     as TotalVolumeMt,
+        total_volume_litres as TotalVolumeLitres,
+        pricing_type        as PricingType,
+        fixed_price_usd     as FixedPriceUsd,
+        pricing_formula     as PricingFormula,
+        premium_usd_mt      as PremiumUsdMt,
+        delivery_terms      as DeliveryTerms,
+        laycan_start        as LaycanStart,
+        laycan_end          as LaycanEnd,
+        load_port           as LoadPort,
+        discharge_port      as DischargePort,
+        purchase_contract_id as PurchaseContractId,
+        pricing_period_start as PricingPeriodStart,
+        pricing_period_end   as PricingPeriodEnd,
+        total_triggered_mt   as TotalTriggeredMt,
+        total_untriggered_mt as TotalUntriggeredMt,
+        cargo_value_prov     as CargoValueProvisional,
+        cargo_value_final    as CargoValueFinal,
+        rollover_count       as RolloverCount,
+        created_by           as CreatedBy,
+        created_at           as CreatedAt,
+        last_changed_by      as LastChangedBy,
+        last_changed_at      as LastChangedAt,
+        local_last_changed_at as LocalLastChangedAt
+  }
+  ─────────────────────────────────────────────────────────────────────────────
+
+  6. Ctrl+S to save. Ctrl+F3 to activate.
+
+  Result: CDS Interface View created. This is the data contract that the
+          Behaviour Definition and all downstream apps will reference.
+
+
+================================================================================
+STEP 4 — CREATE THE CDS PROJECTION VIEW
+================================================================================
+This view sits on top of the Interface View and is what gets exposed to
+the outside world (the OData API). It also carries the UI annotations that
+tell SAP Fiori Elements how to render the screens.
+
+  1. Same as before: right-click package → New → Other → Data Definition.
+
+  2. Fill in:
+       Name        : ZC_ArdovaTradeCard
+       Description : Projection View - Ardova Trade Card (UI)
+
+  3. Select Template: "Define Projection View" → Finish.
+
+  4. Replace with:
+
+  ─────────────────────────────────────────────────────────────────────────────
+  @EndUserText.label: 'Projection View - Ardova Trade Card'
+  @AccessControl.authorizationCheck: #NOT_REQUIRED
+
+  @Metadata.allowExtensions: true
+
+  @UI.headerInfo: {
+    typeName: 'Trade Card',
+    typeNamePlural: 'Trade Cards',
+    title: { type: #STANDARD, value: 'TradeCardId' },
+    description: { type: #STANDARD, value: 'SupplierName' }
+  }
+
+  define root view entity ZC_ArdovaTradeCard
+    provider contract transactional_ui
+    as projection on ZI_ArdovaTradeCard
+  {
+        @UI.facet: [
+          { id: 'TradeCardInfo', type: #COLLECTION_FACET, label: 'Trade Card Details', position: 10 },
+          { id: 'ContractInfo',  type: #COLLECTION_FACET, label: 'Contract Info',      position: 20 },
+          { id: 'PricingInfo',   type: #COLLECTION_FACET, label: 'Pricing',            position: 30 }
+        ]
+
+    key TradeCardId,
+
+        @UI.selectionField: [{ position: 10 }]
+        @UI.lineItem: [{ position: 10, label: 'Trade Card ID' }]
+        Status,
+
+        @UI.selectionField: [{ position: 20 }]
+        @UI.lineItem: [{ position: 20, label: 'Contract Type' }]
+        ContractType,
+
+        @UI.selectionField: [{ position: 30 }]
+        @UI.lineItem: [{ position: 30, label: 'Product' }]
+        ProductType,
+
+        @UI.lineItem: [{ position: 40, label: 'Customer' }]
+        CustomerName,
+        CustomerBpId,
+
+        @UI.lineItem: [{ position: 50, label: 'Supplier' }]
+        SupplierName,
+        SupplierBpId,
+
+        @UI.lineItem: [{ position: 60, label: 'Total Vol (MT)' }]
+        TotalVolumeMt,
+        TotalVolumeLitres,
+
+        @UI.lineItem: [{ position: 70, label: 'Pricing Type' }]
+        PricingType,
+
+        FixedPriceUsd,
+        PricingFormula,
+        PremiumUsdMt,
+        DeliveryTerms,
+        LaycanStart,
+        LaycanEnd,
+        LoadPort,
+        DischargePort,
+        PurchaseContractId,
+        PricingPeriodStart,
+        PricingPeriodEnd,
+        TotalTriggeredMt,
+        TotalUntriggeredMt,
+        CargoValueProvisional,
+        CargoValueFinal,
+        RolloverCount,
+        CreatedBy,
+        CreatedAt,
+        LastChangedBy,
+        LastChangedAt,
+        LocalLastChangedAt
+  }
+  ─────────────────────────────────────────────────────────────────────────────
+
+  5. Ctrl+S → Ctrl+F3 to activate.
+
+  Result: The projection view is created. This is the public-facing shape of
+          your Trade Card — what apps will see and interact with.
+
+
+================================================================================
+STEP 5 — CREATE THE BEHAVIOUR DEFINITION
+================================================================================
+This tells the system what operations are allowed on your Trade Card
+(create, update, delete) and sets up the framework for custom actions
+(like Approve, ExecuteTrigger, etc.) that you will add later.
+
+  1. Right-click your Projection View ZC_ArdovaTradeCard in the Project
+     Explorer → New → Behaviour Definition.
+     (ADT auto-detects the linked interface view ZI_ArdovaTradeCard)
+
+  2. OR: Right-click package → New → Other → Behaviour Definition.
+       Name: ZI_ArdovaTradeCard  (same name as the interface view)
+
+  3. Select Template: "Managed" → Finish.
+
+  4. ADT generates a skeleton. Update it to match:
+
+  ─────────────────────────────────────────────────────────────────────────────
+  managed implementation in class ZBP_ArdovaTradeCard unique;
+  strict ( 2 );
+
+  define behavior for ZI_ArdovaTradeCard alias TradeCard
+    persistent table zardova_trade_card
+    lock master
+    authorization master ( global )
+    etag master LocalLastChangedAt
+  {
+    field ( readonly ) TradeCardId, CreatedAt, CreatedBy,
+                       LastChangedAt, LastChangedBy, LocalLastChangedAt;
+
+    field ( numbering : managed, readonly ) TradeCardId;
+
+    create;
+    update;
+    delete;
+
+    mapping for zardova_trade_card corresponding
+    {
+      TradeCardId          = trade_card_id;
+      Status               = status;
+      ContractType         = contract_type;
+      ProductType          = product_type;
+      CustomerName         = customer_name;
+      CustomerBpId         = customer_bp_id;
+      SupplierName         = supplier_name;
+      SupplierBpId         = supplier_bp_id;
+      TotalVolumeMt        = total_volume_mt;
+      TotalVolumeLitres    = total_volume_litres;
+      PricingType          = pricing_type;
+      FixedPriceUsd        = fixed_price_usd;
+      PricingFormula       = pricing_formula;
+      PremiumUsdMt         = premium_usd_mt;
+      DeliveryTerms        = delivery_terms;
+      LaycanStart          = laycan_start;
+      LaycanEnd            = laycan_end;
+      LoadPort             = load_port;
+      DischargePort        = discharge_port;
+      PurchaseContractId   = purchase_contract_id;
+      PricingPeriodStart   = pricing_period_start;
+      PricingPeriodEnd     = pricing_period_end;
+      TotalTriggeredMt     = total_triggered_mt;
+      TotalUntriggeredMt   = total_untriggered_mt;
+      CargoValueProvisional = cargo_value_prov;
+      CargoValueFinal      = cargo_value_final;
+      RolloverCount        = rollover_count;
+      CreatedBy            = created_by;
+      CreatedAt            = created_at;
+      LastChangedBy        = last_changed_by;
+      LastChangedAt        = last_changed_at;
+      LocalLastChangedAt   = local_last_changed_at;
+    }
+  }
+  ─────────────────────────────────────────────────────────────────────────────
+
+  5. Ctrl+S → Ctrl+F3 to activate.
+
+  NOTE: At this point ADT will automatically create a stub for the
+        implementation class ZBP_ArdovaTradeCard. You will see it appear
+        in your package. You do not need to fill it in yet — the managed
+        RAP framework handles create/update/delete automatically.
+
+  Result: Your Trade Card now supports Create, Read, Update, Delete operations
+          out of the box. The implementation class is auto-scaffolded.
+
+
+================================================================================
+STEP 6 — ADD A BEHAVIOUR DEFINITION FOR THE PROJECTION VIEW
+================================================================================
+You also need a projection-level behaviour definition that mirrors the
+interface-level one.
+
+  1. Right-click ZC_ArdovaTradeCard → New → Behaviour Definition.
+
+  2. ADT may pre-fill the name as ZC_ArdovaTradeCard. Confirm and Finish.
+
+  3. Replace content with:
+
+  ─────────────────────────────────────────────────────────────────────────────
+  projection;
+  strict ( 2 );
+
+  define behavior for ZC_ArdovaTradeCard alias TradeCard
+  {
+    use create;
+    use update;
+    use delete;
+  }
+  ─────────────────────────────────────────────────────────────────────────────
+
+  4. Ctrl+S → Ctrl+F3 to activate.
+
+  Result: The projection behaviour is connected. All CRUD operations flow
+          from the projection layer down to the interface behaviour and
+          into the database table.
+
+
+================================================================================
+STEP 7 — CREATE THE SERVICE DEFINITION
+================================================================================
+This declares which CDS views you want to expose as an OData service.
+
+  1. Right-click package → New → Other → Service Definition.
+
+  2. Fill in:
+       Name        : ZARDOVA_TRADE_CARD_SD
+       Description : Service Definition - Trade Card
+
+  3. Template: "Define Service" → Finish.
+
+  4. Replace content with:
+
+  ─────────────────────────────────────────────────────────────────────────────
+  @EndUserText.label: 'Service Definition - Trade Card'
+
+  define service ZARDOVA_TRADE_CARD_SD {
+    expose ZC_ArdovaTradeCard as TradeCard;
+  }
+  ─────────────────────────────────────────────────────────────────────────────
+
+  5. Ctrl+S → Ctrl+F3 to activate.
+
+  Result: The service is defined. One more step to make it callable.
+
+
+================================================================================
+STEP 8 — CREATE THE SERVICE BINDING
+================================================================================
+This publishes the service as an actual OData V4 endpoint that your
+Fiori apps can call.
+
+  1. Right-click package → New → Other → Service Binding.
+
+  2. Fill in:
+       Name             : ZARDOVA_TRADE_CARD_SB
+       Description      : Service Binding - Trade Card (OData V4)
+       Binding Type     : OData V4 - UI
+
+  3. In the Service Definition field, enter: ZARDOVA_TRADE_CARD_SD
+
+  4. Click Finish.
+
+  5. The Service Binding editor opens. Click the "Publish" button at the top.
+
+  6. Wait for "Publication successful" message.
+
+  7. You will now see a Service URL appear:
+       /sap/opu/odata4/sap/zardova_trade_card_sb/srvd/sap/zardova_trade_card_sd/0001/
+
+  Result: Your Trade Card CBO is now a live OData V4 service. Any app
+          (Fiori Elements, custom SAPUI5, or REST client) can call it.
+
+
+================================================================================
+STEP 9 — QUICK TEST IN THE SERVICE BINDING PREVIEW
+================================================================================
+ADT has a built-in preview that lets you test without writing any frontend.
+
+  1. In the Service Binding editor, find the entity "TradeCard" in the
+     entity list at the bottom.
+
+  2. Click "Preview" next to TradeCard.
+
+  3. A browser window opens with a basic Fiori Elements list app
+     generated automatically from your annotations.
+
+  4. Click "Create" (the + button) and fill in:
+       Trade Card ID  : ARD-2026-000001
+       Contract Type  : OM
+       Product Type   : AGO
+       Supplier Name  : Test Supplier Ltd
+       Total Volume MT: 50000
+       Pricing Type   : L
+
+  5. Click Save.
+
+  6. The record should appear in the list.
+
+  7. Go to SE16N, enter table ZARDOVA_TRADE_CARD, click Execute.
+     Your record should be visible in the database table.
+
+  Result: Full round-trip confirmed. Data flows from UI → OData Service
+          → Behaviour Definition → Database Table.
+
+
+================================================================================
+STEP 10 — SET UP TRADE CARD ID NUMBER RANGE (Auto-numbering)
+================================================================================
+The Trade Card ID should be auto-generated (ARD-2026-000001 pattern)
+rather than entered manually.
+
+  1. Go to transaction SNRO (Number Range Objects).
+
+  2. Create a new number range object:
+       Name        : ZARDTRD
+       Description : Ardova Trade Card Number Range
+
+  3. Click "Number Ranges" → Create:
+       No. : 01
+       From: 0000000001
+       To  : 9999999999
+       Current: 0 (starts from 1)
+
+  4. Back in ADT, open your Behaviour Implementation class ZBP_ArdovaTradeCard.
+
+  5. Find the method for numbering (it may be named finalize or
+     earlynumbering_create). Add:
+
+  ─────────────────────────────────────────────────────────────────────────────
+  METHOD earlynumbering_create.
+    DATA lv_number TYPE i.
+    DATA lv_year   TYPE c LENGTH 4.
+    DATA lv_id     TYPE zardova_trade_card-trade_card_id.
+
+    lv_year = sy-datum+0(4).
+
+    LOOP AT entities ASSIGNING FIELD-SYMBOL(<entity>).
+      TRY.
+          cl_numberrange_runtime=>number_get(
+            EXPORTING
+              nr_range_nr = '01'
+              object      = 'ZARDTRD'
+            IMPORTING
+              number      = lv_number
+          ).
+          lv_id = |ARD-{ lv_year }-{ lv_number WIDTH = 6 PAD = '0' }|.
+          <entity>-tradecardid = lv_id.
+        CATCH cx_number_ranges.
+          " handle error
+      ENDTRY.
+    ENDLOOP.
+  ENDMETHOD.
+  ─────────────────────────────────────────────────────────────────────────────
+
+  6. Activate the class. New Trade Cards created will now receive IDs like:
+     ARD-2026-000001, ARD-2026-000002, etc.
+
+
+================================================================================
+WHAT YOU HAVE NOW — SUMMARY
+================================================================================
+
+Object                          Type              Purpose
+──────────────────────────────────────────────────────────────────────────────
+ZARDOVA_TRADE                   Package           Container for all objects
+ZARDOVA_TRADE_CARD              DB Table          Raw data storage in HANA
+ZI_ArdovaTradeCard              CDS View          Internal data interface
+ZC_ArdovaTradeCard              CDS View          Public-facing UI projection
+ZI_ArdovaTradeCard (BDef)       Behaviour Def     CRUD + action framework
+ZC_ArdovaTradeCard (BDef)       Projection BDef   Projection-level operations
+ZBP_ArdovaTradeCard             ABAP Class        Auto-scaffolded implementation
+ZARDOVA_TRADE_CARD_SD           Service Def       Declares what to expose
+ZARDOVA_TRADE_CARD_SB           Service Binding   OData V4 live endpoint
+ZARDTRD                         Number Range      Auto-generates Trade Card IDs
+
+OData Service URL (callable from BTP apps):
+  /sap/opu/odata4/sap/zardova_trade_card_sb/srvd/sap/zardova_trade_card_sd/0001/
+
+
+================================================================================
+WHAT COMES NEXT
+================================================================================
+
+Once this foundation is working, the next layers to add are:
+
+1. Child tables and child entities (Trigger Log, Finance Section, Ops Section,
+   Volume Capture) — added as composition associations in the Behaviour Def.
+
+2. Custom actions (ApproveTrading, ExecuteTrigger, CloseCargo) — added to
+   the Behaviour Definition and implemented in the ABAP class.
+
+3. Validations (contract type rules, trigger volume limits, status gates)
+   — added as validation methods in the Behaviour Definition.
+
+4. BTP Destination — configure in BTP Cockpit to point to this OData URL
+   so your three Fiori apps can call it from BTP Cloud Foundry.
+
+5. Fiori App connection — in BAS, point your app's manifest.json data source
+   to this service and begin building the UI on top of it.
+
+
+================================================================================
+END OF GUIDE
+Trade Card CBO Creation | SAP S/4HANA RAP | Ardova Trade Supply System
+================================================================================

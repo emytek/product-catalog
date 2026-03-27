@@ -1,0 +1,1280 @@
+================================================================================
+
+        PRODUCT CATALOG MANAGER
+        DATABASE MIGRATION GUIDE
+
+        From: Microsoft Azure SQL Server
+        To:   SAP HANA Cloud on SAP BTP
+
+        Version  : 1.0
+        Date     : March 2026
+        Scope    : Backend database layer only
+                   (Frontend SAPUI5 and Approuter are unchanged)
+
+================================================================================
+
+
+
+
+TABLE OF CONTENTS
+────────────────────────────────────────────────────────────────────────────────
+  1.  What Is SAP HANA Cloud (vs S/4HANA) — Important Clarification
+  2.  What Changed and Why — Migration Overview
+  3.  Files Changed — Complete Reference
+  4.  Phase 1 — BTP Setup: Create the HANA Cloud Service Instance
+  5.  Phase 2 — Schema Setup: Create Tables, Sequence, and View
+  6.  Phase 3 — Local Development: Update Your .env File
+  7.  Phase 4 — Install the HANA Client Driver
+  8.  Phase 5 — Understand the Code Changes (Walkthrough)
+  9.  Phase 6 — Deploy to BTP Cloud Foundry
+  10. Phase 7 — Verify the Deployment
+  11. Rollback Guide — How to Switch Back to Azure SQL Server
+  12. Key SQL Differences Reference Table
+  13. Troubleshooting
+  14. Glossary
+
+
+
+
+================================================================================
+1.  WHAT IS SAP HANA Cloud (vs S/4HANA) — IMPORTANT CLARIFICATION
+================================================================================
+
+The request was to deploy the application database to "S4 Hana Cloud".  There
+are two very different SAP products that share the "HANA" name and it is
+critical to understand which one applies here:
+
+  SAP S/4HANA Cloud
+  ─────────────────
+  This is an ERP application — it is the successor to SAP R/3 and SAP ECC.
+  It manages business processes: finance, procurement, supply chain, HR, etc.
+  It is NOT a database product you connect a Node.js app to directly.
+  The Ardova Trade & Supply project uses S/4HANA Cloud as its ERP platform.
+
+  SAP HANA Cloud
+  ──────────────
+  This is a cloud-native, in-memory relational DATABASE SERVICE available on
+  SAP Business Technology Platform (BTP).  It is what you connect a Node.js
+  (or any) application to as a database backend — exactly like Azure SQL Server
+  but hosted natively on BTP.
+
+  THIS MIGRATION uses SAP HANA Cloud (the database service) — NOT S/4HANA.
+
+Why this matters:
+  The Node.js backend simply needs a SQL database to store products, categories,
+  suppliers, and tags.  SAP HANA Cloud provides that natively on the same BTP
+  platform where the app already runs, eliminating the dependency on an external
+  Azure SQL Server instance and making the entire application self-contained
+  on BTP.
+
+
+
+
+================================================================================
+2.  WHAT CHANGED AND WHY — MIGRATION OVERVIEW
+================================================================================
+
+Architecture before:
+  BTP Approuter → BTP Node.js API → [External] Azure SQL Server
+
+Architecture after:
+  BTP Approuter → BTP Node.js API → [BTP Native] SAP HANA Cloud
+
+What changed in the codebase:
+
+  Component              Before (SQL Server)         After (HANA Cloud)
+  ─────────────────────────────────────────────────────────────────────────────
+  npm driver             mssql@^10.0.4               @sap/hana-client@^2.21.31
+  Connection pool        sql.ConnectionPool           Custom HanaPool class
+  Request object         sql.Request (named @params) HanaRequest (converts to ?)
+  Transactions           sql.Transaction             HANA setAutoCommit(false)
+  Table references       [dbo].[TableName]           "TableName"
+  Column references      [ColumnName]                "ColumnName"
+  Parameter style        @paramName + typed input    @paramName (type ignored)
+  Multi-result queries   Two SELECTs in one string   Two separate query() calls
+  Pagination             OFFSET x ROWS FETCH NEXT y  LIMIT y OFFSET x
+  Boolean column         BIT (0/1)                   BOOLEAN (true/false)
+  ID generation          sp_GetNextProductID (proc)  "ProductIDSeq" SEQUENCE
+  Stats aggregation      sp_GetProductStats (proc)   Inline aggregate SELECT
+  Tag upsert             MERGE + T-SQL IF/BEGIN/END  HANA MERGE INTO (twice)
+  Supplier upsert        MERGE + SELECT (1 query)    MERGE then SELECT (2 calls)
+  Error mapping          err.number (2627/547/515)   err.code (301/461/307)
+  Service binding        user-provided service        hana managed service
+  mta.yaml resource      product-catalog-mssql        product-catalog-hana
+  DB_PORT default        1433                        443
+
+What did NOT change:
+  - The entire SAPUI5 frontend (webapp/)
+  - The approuter (approuter/)
+  - All business logic in services/
+  - All API routes and controllers
+  - All middleware except error.middleware.js (error code mapping)
+  - Caching, rate limiting, queue, logging config
+  - The shape of the API responses
+  - The product DTO — frontend receives the exact same JSON structure
+
+
+
+
+================================================================================
+3.  FILES CHANGED — COMPLETE REFERENCE
+================================================================================
+
+MODIFIED FILES:
+  backend/package.json
+    — Added:   @sap/hana-client
+    — Removed: mssql (reference preserved in _removedDependencies_ key)
+
+  backend/src/config/environment.js
+    — Updated VCAP_SERVICES parser to read "hana" service binding
+    — Updated db config: removed database/encrypt/trustServerCertificate;
+      added schema/sslValidateCertificate
+    — Default DB_PORT changed from 1433 to 443
+    — SQL Server config block commented out for reference
+
+  backend/src/config/database.js
+    — Complete rewrite: mssql → @sap/hana-client
+    — New classes: HanaPool, HanaRequest, HanaTransactionContext
+    — sql shim object retained so existing .input(name, sql.Type, value) calls
+      still compile (type argument is ignored at runtime)
+    — SQL Server original implementation commented at the bottom
+
+  backend/src/repositories/BaseRepository.js
+    — withTransaction: sql.Transaction → pool.beginTransaction() / HanaTransactionContext
+    — query/exec error check: err.number → err.code (typeof === "number")
+    — Imports HanaTransactionContext from database.js
+
+  backend/src/repositories/product.repository.js
+    — All table/column references updated: [dbo].[x] → "x"
+    — findAll(): split into two query() calls (count + paged data)
+    — findAll(): pagination: OFFSET/FETCH → LIMIT/OFFSET
+    — findAll(): LIKE: inline wildcards in param value
+    — getStats(): stored proc → inline aggregate SELECT
+    — generateNextId(): stored proc output → SEQUENCE + JS formatting
+    — insert/update: new sql.Request(transaction) → transaction.request()
+    — syncTags(): T-SQL IF/BEGIN/END → two MERGE INTO statements
+    — deleteMany(): unchanged logic, works with HanaRequest param conversion
+
+  backend/src/repositories/category.repository.js
+    — All table/column references updated
+    — IsActive: = 1 → = TRUE (HANA BOOLEAN)
+
+  backend/src/repositories/supplier.repository.js
+    — All table/column references updated
+    — findOrCreate(): split into two query() calls (MERGE then SELECT)
+    — MERGE syntax: USING VALUES → USING SELECT ... FROM DUMMY
+
+  backend/src/middleware/error.middleware.js
+    — HANA error codes: err.code 301/461/307 (was err.number 2627/547/515)
+    — SQL Server block commented out for reference
+
+  mta.yaml
+    — Resource: product-catalog-mssql → product-catalog-hana (type: hana)
+    — API module binding: product-catalog-mssql → product-catalog-hana
+    — SQL Server resource commented out for reference
+
+  backend/.env.example
+    — HANA connection variables documented
+    — SQL Server variables moved to commented reference block
+
+CREATED FILES:
+  backend/db/hana/001_schema.sql
+    — HANA DDL: 5 tables, 6 indexes, 1 sequence, 1 view (vw_ProductFull)
+
+  backend/db/hana/002_seed_data.sql
+    — 5 categories, 10 suppliers, 10 tags, 25 products, ProductTags entries
+    — Resets sequence to 26 after seeding P001–P025
+
+  Doc/HANA_Migration_Guide.txt
+    — This document
+
+
+
+
+================================================================================
+4.  PHASE 1 — BTP SETUP: CREATE THE HANA SERVICE INSTANCE (schema plan)
+================================================================================
+
+ABOUT THE SCHEMA PLAN
+─────────────────────
+  The plans available on your BTP account are:
+    hdi-shared | sbss | schema | securestore
+
+  These are plans on a shared SAP-managed HANA system (not a dedicated
+  HANA Cloud instance).  The correct plan for this application is "schema".
+
+  What the "schema" plan gives you:
+    — A dedicated schema (database namespace) on the shared HANA system
+    — An auto-generated database user whose name matches the schema name
+    — An auto-generated password
+    — A connection host and port
+    — All credentials delivered automatically via VCAP_SERVICES when the
+      service is bound to your app
+
+  This is equivalent to "here is your own private section of the database"
+  — the schema plan user cannot see any other tenant's tables, and no other
+  tenant can see yours.
+
+Prerequisites:
+  — SAP BTP trial or production account with Cloud Foundry enabled
+  — A CF space (e.g. "dev") already created
+  — CF CLI v8+ installed and logged in:
+      cf --version
+      cf login -a <your-cf-api-endpoint>
+
+Step 1.1 — Confirm the schema plan is available
+──────────────────────────────────────────────────
+  cf marketplace -e hana
+
+  You should see "schema" in the plan column.  If you see it, you are ready.
+
+Step 1.2 — Create the HANA schema service instance
+────────────────────────────────────────────────────
+  cf create-service hana schema product-catalog-hana
+
+  This command:
+    — Creates a schema + user on the shared HANA system
+    — Names the service "product-catalog-hana" (matches mta.yaml)
+    — Is synchronous — completes in a few seconds (no 15-minute wait)
+
+  Verify it was created:
+    cf service product-catalog-hana
+    → Status should show: "create succeeded"
+
+Step 1.3 — Create a service key to retrieve connection credentials
+────────────────────────────────────────────────────────────────────
+  A service key gives you the raw connection details so you can:
+    a) Run the schema DDL scripts manually (Phase 2)
+    b) Configure your local .env file (Phase 3)
+
+  Create the key:
+    cf create-service-key product-catalog-hana devkey
+
+  View the key:
+    cf service-key product-catalog-hana devkey
+
+  The output is a JSON object.  It will look similar to this:
+  ─────────────────────────────────────────────────────────────
+  {
+    "host":        "abc12345.hana.ondemand.com",
+    "port":        "443",
+    "user":        "USER_ABC12345_XYZ",
+    "password":    "generated-password-here",
+    "schema":      "USER_ABC12345_XYZ",
+    "hdi_user":    "USER_ABC12345_XYZ_DT",
+    "hdi_password":"another-generated-password",
+    "driver":      "com.sap.db.jdbc.Driver",
+    "url":         "jdbc:sap://abc12345.hana.ondemand.com:443?...",
+    "certificate": "-----BEGIN CERTIFICATE-----\nMIICpD...\n-----END CERTIFICATE-----"
+  }
+  ─────────────────────────────────────────────────────────────
+
+  NOTE DOWN these four values — you need them in Phase 2 and Phase 3:
+    host      (the HANA server hostname)
+    port      (usually 443)
+    user      (your auto-generated DB user — all uppercase)
+    password  (your auto-generated password)
+    schema    (same as user — your private schema namespace)
+
+Step 1.4 — Open SAP HANA Database Explorer
+────────────────────────────────────────────
+  The HANA Database Explorer (DBX) is a browser-based SQL tool you will use
+  to run the schema creation scripts.
+
+  How to access it on BTP:
+    Option A (Recommended — BTP Tool Catalog):
+      1. Go to BTP Cockpit → your subaccount
+      2. In the left navigation: Services → Instances and Subscriptions
+      3. Find "SAP HANA Database Explorer" in the Subscriptions tab
+         — If not yet subscribed: click "SAP HANA Database Explorer" → Subscribe
+         — Wait for status to show "Subscribed"
+      4. Click "Go to Application" to open DBX in a new browser tab
+
+    Option B (Direct URL):
+      The DBX URL pattern is:
+        https://hana-cockpit.cfapps.<region>.hana.ondemand.com/dbtool/index.html
+      Your region is visible in your CF API endpoint
+      (e.g. eu10, us10, ap21 — look at cf target output).
+
+  Once DBX is open, add a connection using the service key credentials:
+    1. In the left panel, click the "+" (Add Database) button
+    2. Choose "SAP HANA Database (User/Password)"
+    3. Fill in:
+         Host     : <host from service key>
+         Port     : <port from service key, usually 443>
+         User     : <user from service key>
+         Password : <password from service key>
+    4. Click "OK" / "Add"
+    5. The new connection appears in the left panel
+
+  You are now ready to run the schema scripts in Phase 2.
+
+
+
+
+================================================================================
+5.  PHASE 2 — SCHEMA SETUP: CREATE TABLES, SEQUENCE, AND VIEW
+================================================================================
+
+Overview:
+  You must create the database objects BEFORE running the app for the first
+  time.  With the schema plan, your schema already exists (created by CF when
+  you ran cf create-service).  You only need to create the tables, indexes,
+  sequence, and view inside that schema.
+
+  Two SQL scripts are provided in backend/db/hana/:
+    001_schema.sql    — creates all tables, indexes, sequence, and the view
+    002_seed_data.sql — inserts the initial 25 products + supporting data
+
+  IMPORTANT — Schema context:
+    All objects will be created inside YOUR schema (the one from the service
+    key).  @sap/hana-client connects with currentSchema set to your schema,
+    so all unqualified table names like "Products" resolve automatically.
+
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  Two ways to run the scripts — choose whichever applies to you:          │
+  │                                                                          │
+  │  METHOD A (RECOMMENDED): Node.js migration script — no extra tools       │
+  │  METHOD B (ALTERNATIVE): SAP HANA Database Explorer — browser-based UI  │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+
+────────────────────────────────────────────────────────────────────────────────
+METHOD A — Node.js Migration Script  (no SAP tools required)
+────────────────────────────────────────────────────────────────────────────────
+
+  The file backend/db/hana/run-migrations.js was created specifically for
+  running the SQL scripts without needing SAP HANA Database Explorer.
+  It uses @sap/hana-client (already in your package.json) to connect to
+  HANA Cloud and execute every statement in both SQL files.
+
+  Features:
+    — Connects using credentials from backend/.env
+    — Runs 001_schema.sql first, then 002_seed_data.sql
+    — Skips any statement that fails because the object already exists
+      (safe to re-run — will not drop or corrupt existing data)
+    — Prints a clear OK / SKIP / FAIL status for every statement
+    — Runs a final verification query to confirm row counts
+
+Step 2.1 — Prerequisites
+──────────────────────────
+  Before running the script, confirm:
+
+  a) You have completed Phase 1:
+       cf service product-catalog-hana
+       → Status: "create succeeded"
+
+  b) Your backend/.env has all HANA credentials (Phase 3 below handles this
+     in detail, but you need these set before running the migration):
+       DB_HOST=<your host from service key>
+       DB_PORT=443
+       DB_USER=<your user from service key>
+       DB_PASSWORD=<your password from service key>
+       DB_SCHEMA=<same value as DB_USER>
+       DB_SSL_VALIDATE_CERT=false
+
+  c) You have run npm install in the backend/ directory at least once:
+       cd backend && npm install
+       → This installs @sap/hana-client which the script requires.
+
+Step 2.2 — Run the migration script
+──────────────────────────────────────
+  From a terminal, navigate to the backend/ directory and run:
+
+    cd backend
+    node db/hana/run-migrations.js
+
+  IMPORTANT: Run this from inside backend/ — not from the project root.
+  The script loads .env by looking two directories up from its own location
+  (backend/db/hana/ → backend/), so the working directory must be backend/.
+
+  Flags (optional):
+    node db/hana/run-migrations.js --skip-seed   → schema only, no data
+    node db/hana/run-migrations.js --seed-only   → data only, schema already exists
+
+Step 2.3 — Expected output
+────────────────────────────
+  A successful run looks like this:
+
+  ============================================================
+    Product Catalog Manager — HANA Schema Migration
+  ============================================================
+
+    Host   : 1167cf49-xxxx.hanacloud.ondemand.com
+    Port   : 443
+    User   : USR_XXXXXXXXXX
+    Schema : USR_XXXXXXXXXX
+
+    Connecting to SAP HANA Cloud...
+    [OK] Connected.
+    [OK] Logged in as : USR_XXXXXXXXXX
+    [OK] Active schema: USR_XXXXXXXXXX
+
+  ────────────────────────────────────────────────────────────
+    Running: 001_schema.sql  (12 statements)
+  ────────────────────────────────────────────────────────────
+    [OK]   CREATE TABLE "Categories" ( "CategoryID" INTEGER GENERATED BY ...
+    [OK]   CREATE TABLE "Suppliers" ( "SupplierID" INTEGER GENERATED BY ...
+    [OK]   CREATE TABLE "Tags" ( "TagID" INTEGER GENERATED BY DEFAULT AS...
+    [OK]   CREATE TABLE "Products" ( "ProductID" NVARCHAR(10) NOT NULL P...
+    [OK]   CREATE TABLE "ProductTags" ( "ProductID" NVARCHAR(10) NOT NUL...
+    [OK]   CREATE INDEX "IDX_Products_Status" ON "Products"("Status")
+    [OK]   CREATE INDEX "IDX_Products_CategoryID" ON "Products"("CategoryID")
+    [OK]   CREATE INDEX "IDX_Products_Featured" ON "Products"("Featured")
+    [OK]   CREATE INDEX "IDX_Products_Price" ON "Products"("Price")
+    [OK]   CREATE INDEX "IDX_Products_Stock" ON "Products"("Stock")
+    [OK]   CREATE INDEX "IDX_Products_Name" ON "Products"("ProductName")
+    [OK]   CREATE SEQUENCE "ProductIDSeq" START WITH 1 INCREMENT BY 1 NO...
+    [OK]   CREATE VIEW "vw_ProductFull" AS SELECT p."ProductID", p."Produ...
+
+    Result: 13 executed  |  0 skipped  |  0 failed
+
+  ────────────────────────────────────────────────────────────
+    Running: 002_seed_data.sql  (N statements)
+  ────────────────────────────────────────────────────────────
+    [OK]   INSERT INTO "Categories" ("CategoryName", "Description") VALU...
+    ... (many INSERT statements) ...
+    [OK]   ALTER SEQUENCE "ProductIDSeq" RESTART WITH 26
+
+    Result: N executed  |  0 skipped  |  0 failed
+
+  ────────────────────────────────────────────────────────────
+    Verification
+  ────────────────────────────────────────────────────────────
+    Products in database : 25
+    Categories           : 5
+    Suppliers            : 10
+    Tags                 : 10
+
+  ============================================================
+    Migration complete!
+    Next steps:
+    1. Start the backend:  npm run dev
+    2. Test health:        GET http://localhost:3000/health
+    3. Test products:      GET http://localhost:3000/api/v1/products/catalog
+  ============================================================
+
+  What was created inside your schema:
+    Tables  : "Categories", "Suppliers", "Tags", "Products", "ProductTags"
+    Indexes : 6 indexes on the "Products" table for common filter columns
+    Sequence: "ProductIDSeq" — starts at 26 after seeding (next product = P026)
+    View    : "vw_ProductFull" — joins all tables; used for all GET queries
+    Data    : 5 categories, 10 suppliers, 10 tags, 25 products (P001–P025)
+
+Step 2.4 — If any statement fails
+────────────────────────────────────
+  The script will print [FAIL] with the HANA error code and message.
+
+  Common failures and fixes:
+
+  a) "Cannot connect" / SSL / certificate error
+       → Double-check DB_HOST, DB_PORT, DB_USER, DB_PASSWORD in .env
+       → Make sure there are no quotes around values in .env
+       → Check that DB_SSL_VALIDATE_CERT=false
+
+  b) "Not authorized" / "insufficient privilege"
+       → Your DB_USER may not have CREATE TABLE rights on the schema
+       → Confirm DB_SCHEMA = DB_USER (they must match for the schema plan)
+       → Re-retrieve credentials: cf service-key product-catalog-hana devkey
+
+  c) Schema script stops at one statement (stopOnError=true for schema)
+       → Fix the reported statement and re-run — existing objects are skipped
+       → Use --seed-only flag if the schema is already correct:
+           node db/hana/run-migrations.js --seed-only
+
+  d) Seed data partially inserted
+       → Re-run the full command — duplicate inserts are skipped automatically
+
+
+────────────────────────────────────────────────────────────────────────────────
+METHOD B — SAP HANA Database Explorer  (alternative, if you have access)
+────────────────────────────────────────────────────────────────────────────────
+
+  If you have access to HANA Database Explorer (DBX) on BTP, you can run
+  the scripts manually through the browser UI instead.
+
+  How to access DBX:
+    BTP Cockpit → Services → Instances and Subscriptions
+    → Find your HANA Cloud instance → Actions (⋮) → "Open in SAP HANA Database Explorer"
+
+  Add a connection using your service key credentials:
+    Host     : value of "host" from the service key
+    Port     : 443
+    User     : value of "user" from the service key
+    Password : value of "password" from the service key
+
+  Run 001_schema.sql:
+    1. Open SQL Console (right-click connection → "Open SQL Console")
+    2. Paste the full content of backend/db/hana/001_schema.sql
+    3. Press F8 (Run All)
+
+  Run 002_seed_data.sql:
+    1. Open a new SQL Console tab
+    2. Paste the full content of backend/db/hana/002_seed_data.sql
+    3. Press F8
+
+  Verify:
+    SELECT COUNT(*) AS "ProductCount" FROM "Products";
+    -- Expected: 25
+
+    SELECT "ProductID", "ProductName", "Category", "Supplier"
+    FROM   "vw_ProductFull"
+    ORDER  BY "ProductID"
+    FETCH FIRST 5 ROWS ONLY;
+    -- Expected: P001–P005 with full names (not IDs)
+
+
+
+
+================================================================================
+6.  PHASE 3 — LOCAL DEVELOPMENT: UPDATE YOUR .env FILE
+================================================================================
+
+Step 3.1 — Retrieve the service key credentials
+──────────────────────────────────────────────────
+  Run this to print your HANA connection details:
+
+    cf service-key product-catalog-hana devkey
+
+  The output is a JSON object with these fields:
+    "host"     →  DB_HOST     (the HANA server hostname)
+    "port"     →  DB_PORT     (almost always 443)
+    "user"     →  DB_USER     (auto-generated, looks like USR_XXXXXXXXXX)
+    "password" →  DB_PASSWORD (auto-generated)
+    "schema"   →  DB_SCHEMA   (always the same value as "user")
+
+  IMPORTANT: With the schema plan, the user and schema are AUTO-GENERATED
+  by SAP — they are NOT "DBADMIN".  They look like: USR_8OHF4BBR56UBSSJOIDG8SXHGQ
+  Always copy the exact values from the service key output.
+
+Step 3.2 — Complete backend/.env
+──────────────────────────────────
+  The backend/.env file has been updated.  The correct structure is:
+
+  ─────────────────────────────────────────────────────────────────────────
+  NODE_ENV=development
+  PORT=3000
+  API_VERSION=v1
+
+  # ── SAP HANA Cloud ───────────────────────────────────────────────────────
+  DB_HOST=<host from service key>
+  DB_PORT=443
+  DB_USER=<user from service key>
+  DB_PASSWORD=<password from service key>
+  DB_SCHEMA=<schema from service key — same value as DB_USER>
+  DB_SSL_VALIDATE_CERT=false
+
+  # ── SQL Server reference (commented out — rollback only) ─────────────────
+  # DB_NAME=ProductCatalogDB
+  # DB_ENCRYPT=false
+  # DB_TRUST_CERT=true
+
+  CORS_ORIGIN=http://localhost:8080,http://localhost:5000
+  LOG_LEVEL=debug
+  LOG_DIR=logs
+  CACHE_TTL_SECONDS=300
+  CACHE_TTL_CATALOG_SECONDS=600
+  RATE_LIMIT_WINDOW_MS=900000
+  RATE_LIMIT_MAX_REQUESTS=200
+  ─────────────────────────────────────────────────────────────────────────
+
+  Key changes from the original SQL Server .env:
+    REMOVED: DB_NAME, DB_ENCRYPT, DB_TRUST_CERT  (SQL Server specific — not
+             used by @sap/hana-client, would cause confusion if left in)
+    ADDED:   DB_SCHEMA      — the schema/namespace in HANA (= DB_USER value)
+    ADDED:   DB_SSL_VALIDATE_CERT=false — SAP manages the certificate; no
+             custom CA is needed for BTP-hosted HANA Cloud
+    CHANGED: DB_PORT=443    — HANA Cloud uses HTTPS/SSL, not 1433
+    ADDED:   API_VERSION=v1 — used by routes; has a default but explicit is
+             better
+
+  Common .env mistakes to avoid:
+    ✗ DB_HOST="value"          — do NOT wrap values in quotes in .env files
+    ✗ DB_SCHEMA=               — must not be empty; set it to the same value
+                                 as DB_USER
+    ✗ DB_SSL_VALIDATE_CERT=true — use false for BTP-hosted HANA; true only
+                                  for self-managed HANA with custom certs
+
+Step 3.3 — Install dependencies
+──────────────────────────────────
+  If you have not already done so:
+
+    cd backend
+    npm install
+
+  This installs @sap/hana-client (added to package.json during migration).
+  npm install is required before running the migration script OR starting
+  the backend server.
+
+Step 3.4 — Run the schema migration
+──────────────────────────────────────
+  With .env set and dependencies installed, create the HANA tables and seed
+  the 25 demo products (see Phase 2 — Method A for full details):
+
+    cd backend
+    node db/hana/run-migrations.js
+
+  Expected final output:
+    Products in database : 25
+    Categories           : 5
+    Suppliers            : 10
+    Tags                 : 10
+
+Step 3.5 — Start the backend locally
+──────────────────────────────────────
+  cd backend
+  npm run dev
+
+  Watch the startup logs.  You should see:
+    [DB] Creating SAP HANA Cloud connection pool...
+    [DB] HANA pool connected → <host>:443 schema="USR_..." pool(min=2, max=10)
+    [SERVER] Worker 1 listening on port 3000
+
+  If you see a connection error, check:
+    — DB_HOST, DB_USER, DB_PASSWORD are copied exactly from the service key
+    — No quotes around values in .env (e.g. DB_HOST=abc.com not DB_HOST="abc.com")
+    — DB_SCHEMA is set (not empty)
+    — DB_SSL_VALIDATE_CERT=false
+
+Step 3.6 — Test the API locally
+──────────────────────────────────
+  Open a browser or Postman:
+
+  Health check (verifies database connectivity):
+    GET  http://localhost:3000/health
+    → { "status": "ok", "database": true, "uptime": ..., "timestamp": ... }
+
+  Product catalog (all 25 products):
+    GET  http://localhost:3000/api/v1/products/catalog
+    → { "success": true, "data": { "products": [ ... 25 items ... ] } }
+
+  KPI stats (home dashboard data):
+    GET  http://localhost:3000/api/v1/products/stats
+    → { "success": true, "data": { "totalProducts": 25, ... } }
+
+  Paginated list:
+    GET  http://localhost:3000/api/v1/products?page=1&limit=10
+    → { "success": true, "data": { "products": [...], "total": 25, "page": 1 } }
+
+  If "database": false in the /health response, the backend started but
+  cannot reach HANA Cloud.  Check cf logs / local backend logs for [DB] errors.
+
+
+
+
+================================================================================
+7.  PHASE 4 — INSTALL THE HANA CLIENT DRIVER
+================================================================================
+
+Step 4.1 — Install from the backend directory
+────────────────────────────────────────────────
+  cd backend
+  npm install
+
+  This installs @sap/hana-client (now listed in package.json).
+
+  NOTE: @sap/hana-client is a native Node.js addon.  It requires:
+    - Python 3 (for node-gyp)
+    - A C++ compiler (MSVC Build Tools on Windows, GCC on Linux)
+    - Node.js 18 or higher (already required by the app)
+
+  If you see a build error during npm install:
+
+    On Windows:
+      npm install --global windows-build-tools
+      (run in an elevated PowerShell if needed)
+      OR install Visual Studio Build Tools from:
+      https://visualstudio.microsoft.com/visual-cpp-build-tools/
+
+    On Linux/macOS:
+      sudo apt install build-essential   (Ubuntu/Debian)
+      xcode-select --install             (macOS)
+
+  For SAP BTP Cloud Foundry deployment, the nodejs_buildpack handles
+  native addon compilation automatically — no manual action needed.
+
+Step 4.2 — Verify installation
+────────────────────────────────
+  node -e "require('@sap/hana-client'); console.log('OK');"
+  → Should print: OK
+
+  If it prints an error about a missing native module, run:
+    npm rebuild @sap/hana-client
+
+
+
+
+================================================================================
+8.  PHASE 5 — UNDERSTAND THE CODE CHANGES (WALKTHROUGH)
+================================================================================
+
+This section explains each changed file and why it changed.
+
+──────────────────────────────────────────────────────────────────────────────
+8.1  backend/src/config/database.js  (complete rewrite)
+──────────────────────────────────────────────────────────────────────────────
+
+The most significant change.  Three new classes replace the mssql pool:
+
+  HanaPool
+  ─────────
+  Manages a bounded set of HANA connections (min=2, max=10 by default).
+  Pre-warms connections at startup.  When all connections are in use, callers
+  are queued with a 15-second timeout.
+
+  Key methods:
+    .connect()            — pre-warm; called once at startup
+    .request()            — returns a HanaRequest for a pool-backed query
+    .beginTransaction()   — acquires a connection, sets autoCommit=false
+    .commitTransaction()  — commits and releases the connection back
+    .rollbackTransaction()— rolls back and releases the connection back
+    .isHealthy()          — used by the /health endpoint
+    .close()              — graceful shutdown (called on SIGTERM)
+
+  HanaRequest
+  ────────────
+  Mimics the mssql Request interface so all existing .input() / .query()
+  calls in the repositories continue to work without structural change.
+
+  How it works:
+    1. You call req.input("productId", sql.NVarChar(10), "P001")
+       The type (sql.NVarChar(10)) is stored but ignored.
+       The name "productId" and value "P001" are recorded.
+
+    2. You call req.query('SELECT * FROM "Products" WHERE "ProductID" = @productId')
+       HanaRequest scans the SQL for @productId, replaces it with ?,
+       and records "P001" as the positional parameter value.
+       The actual call to HANA becomes:
+         conn.exec('SELECT * FROM "Products" WHERE "ProductID" = ?', ["P001"])
+
+    3. The result is normalised to the mssql shape:
+         { recordset: [...], recordsets: [[...]], rowsAffected: [n] }
+       All existing result.recordset[0], result.rowsAffected[0] checks work.
+
+  If the same @paramName appears multiple times in the SQL, each occurrence
+  becomes its own ? with its own copy of the value in the array.  This is
+  correct behaviour for HANA's positional parameter system.
+
+  HanaTransactionContext
+  ───────────────────────
+  Wraps a HANA connection that is in autoCommit=false mode.
+  Passed to repository callbacks via withTransaction() so they can create
+  bound HanaRequests with tx.request() rather than accessing the raw
+  connection object.
+
+  sql (type shim)
+  ────────────────
+  All the sql.NVarChar, sql.Int, sql.Decimal, sql.Bit etc. calls in the
+  repositories remain unchanged.  This shim object exports those names as
+  no-op functions/null values so the calls compile.  The type information is
+  discarded — HANA maps JavaScript types to SQL types automatically.
+
+──────────────────────────────────────────────────────────────────────────────
+8.2  backend/src/config/environment.js
+──────────────────────────────────────────────────────────────────────────────
+
+  parseCFServices() now reads from VCAP_SERVICES["hana"][0].credentials
+  instead of VCAP_SERVICES["user-provided"] for "product-catalog-mssql".
+
+  HANA credential field names differ from SQL Server:
+    SQL Server: host, port, database, user, password
+    HANA Cloud: host, port, user, password, schema
+
+  The db config object removes database (HANA uses schema) and adds schema
+  and sslValidateCertificate.
+
+──────────────────────────────────────────────────────────────────────────────
+8.3  backend/src/repositories/BaseRepository.js
+──────────────────────────────────────────────────────────────────────────────
+
+  withTransaction() is the key change:
+
+  BEFORE (mssql):
+    const pool = await getPool();
+    const transaction = new sql.Transaction(pool);
+    await transaction.begin();
+    // callback receives mssql Transaction object
+    // callback creates: new sql.Request(transaction)
+    await transaction.commit();
+
+  AFTER (HANA):
+    const pool = await getPool();
+    const conn = await pool.beginTransaction();         // acquires + setAutoCommit(false)
+    const txCtx = new HanaTransactionContext(conn);
+    // callback receives HanaTransactionContext
+    // callback creates: txCtx.request()
+    await pool.commitTransaction(conn);                 // commits + setAutoCommit(true) + release
+
+  Error detection:
+    mssql errors had err.number (integer)
+    HANA errors have err.code (integer)
+    Changed: if (err.number) → if (err.code && typeof err.code === "number")
+    (The typeof check prevents confusion with AppError.code which is a string.)
+
+──────────────────────────────────────────────────────────────────────────────
+8.4  backend/src/repositories/product.repository.js
+──────────────────────────────────────────────────────────────────────────────
+
+  findAll() — Two queries instead of one
+    HANA does not support multiple result sets from a single exec() call.
+    The old code ran: "SELECT COUNT(*) ...; SELECT * ... ORDER BY ..."
+    as one string and read result.recordsets[0] and result.recordsets[1].
+    The new code runs two separate query() calls sharing the same WHERE clause
+    via a helper function applyFilterParams().
+
+  Pagination
+    Old: ORDER BY x OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY
+    New: ORDER BY x LIMIT @limit OFFSET @offset
+
+  LIKE search
+    Old: v.[ProductName] LIKE N'%' + @search + N'%'
+    New: @search param value already includes % wildcards (passed as "%value%")
+         SQL becomes: v."ProductName" LIKE @search
+
+  getStats() — inline SQL replaces stored procedure
+    Old: await this.exec("sp_GetProductStats")
+    New: a single SELECT with COUNT(*), SUM(CASE WHEN ...) aggregates
+
+  generateNextId() — SEQUENCE replaces stored procedure
+    Old: request.output("NewProductID", sql.NVarChar(10));
+         result = await request.execute("sp_GetNextProductID");
+         return result.output.NewProductID;
+    New: rows = await req.query('SELECT "ProductIDSeq".NEXTVAL AS "NextVal" FROM DUMMY');
+         return "P" + String(rows[0]["NextVal"]).padStart(3, "0");
+
+  syncTags() — HANA MERGE replaces T-SQL IF/BEGIN/END
+    The T-SQL IF NOT EXISTS BEGIN ... END construct is not supported in HANA
+    plain SQL (only in stored procedures / SQLScript).
+    The new version uses two MERGE INTO statements:
+      1st MERGE: upserts the tag into "Tags" table
+      2nd MERGE: links the tag to the product in "ProductTags"
+
+  Transaction requests
+    Old: const request = new sql.Request(transaction);
+    New: const req = transaction.request();
+
+──────────────────────────────────────────────────────────────────────────────
+8.5  backend/src/repositories/supplier.repository.js
+──────────────────────────────────────────────────────────────────────────────
+
+  findOrCreate() — split into two calls
+    Old: One query string with MERGE then SELECT (multi-statement).
+    New: Two separate query() calls.
+
+  MERGE syntax
+    Old: USING (VALUES (@name)) AS source ([SupplierName])
+    New: USING (SELECT @name AS "SupplierName" FROM DUMMY) AS source
+
+──────────────────────────────────────────────────────────────────────────────
+8.6  backend/src/middleware/error.middleware.js
+──────────────────────────────────────────────────────────────────────────────
+
+  HANA error codes replace SQL Server error numbers:
+    301 (was 2627) — Unique constraint violation → 409 Conflict
+    461 (was 547)  — Foreign key constraint      → 400 Bad Request
+    307 (was 515)  — NOT NULL constraint         → 400 Bad Request
+
+  Detection condition:
+    Old: if (!err.isOperational && err.number)
+    New: if (!err.isOperational && err.code && typeof err.code === "number")
+
+
+
+
+================================================================================
+9.  PHASE 6 — DEPLOY TO BTP CLOUD FOUNDRY
+================================================================================
+
+Prerequisites checklist — confirm ALL before starting:
+  ✓ Phase 1 complete: cf service product-catalog-hana → "create succeeded"
+  ✓ Phase 2 complete: migration script ran, 25 products in database
+  ✓ Phase 3 complete: backend/.env has HANA vars; npm install done; local
+                      API returns { "database": true } on GET /health
+  ✓ Logged in to CF:  cf target (shows your org and space)
+  ✓ mbt installed:    mbt --version
+                      If not: npm install -g mbt
+
+Step 9.1 — Confirm the service exists in CF
+────────────────────────────────────────────
+  cf service product-catalog-hana
+
+  Status must be "create succeeded".  If not, re-run:
+    cf create-service hana schema product-catalog-hana
+  and wait until the status shows succeeded before continuing.
+
+Step 9.2 — Ensure npm install has been run in the backend
+───────────────────────────────────────────────────────────
+  cd backend && npm install && cd ..
+
+  This is critical: @sap/hana-client must be in package-lock.json so the
+  CF Node.js buildpack can re-install it during the cloud build.
+
+Step 9.3 — Build the MTA archive
+──────────────────────────────────
+  Run from the project ROOT directory (where mta.yaml lives):
+
+    mbt build -p cf
+
+  ┌──────────────────────────────────────────────────────────────────────────┐
+  │  WINDOWS NOTE: The approuter build step uses the Linux command           │
+  │    cp -r ../webapp ./webapp                                              │
+  │  This will fail in Windows Command Prompt or PowerShell.                 │
+  │                                                                          │
+  │  Use one of these instead:                                               │
+  │    — Git Bash (recommended — already available if you have Git)          │
+  │    — WSL2 (Windows Subsystem for Linux)                                  │
+  │    — SAP Business Application Studio (BAS) — always Linux                │
+  └──────────────────────────────────────────────────────────────────────────┘
+
+  Successful output ends with:
+    [2026-...] INFO Cloud MTA Build Tool version X.X.X
+    [2026-...] INFO generating the "mta_archives/product-catalog-manager_1.0.0.mtar" file...
+    [2026-...] INFO done
+
+  The build creates:
+    mta_archives/product-catalog-manager_1.0.0.mtar
+
+  If the build fails:
+    — "cp: command not found" → you are on Windows CMD; switch to Git Bash
+    — "Cannot find mta.yaml"  → run from the project root, not from backend/
+    — "mbt: command not found"→ run: npm install -g mbt
+
+Step 9.4 — Deploy to Cloud Foundry
+────────────────────────────────────
+  From the project root:
+
+    cf deploy mta_archives/product-catalog-manager_1.0.0.mtar
+
+  What this command does:
+    1. Uploads the .mtar archive to BTP
+    2. Verifies that product-catalog-hana service already exists (Phase 1)
+    3. Builds and pushes product-catalog-api (Node.js backend)
+    4. Builds and pushes product-catalog-approuter (serves UI + proxies API)
+    5. Binds product-catalog-hana to the API app
+    6. CF injects VCAP_SERVICES with HANA credentials into the API app
+    7. Starts both apps and runs /health health check on the API
+
+  Watch the deployment output carefully.
+  A successful deploy ends with all modules showing status "started".
+
+  If the deploy hangs or fails, open a second terminal and monitor:
+    cf logs product-catalog-api --recent
+    cf logs product-catalog-approuter --recent
+
+Step 9.5 — Verify both apps are running
+──────────────────────────────────────────
+  cf apps
+
+  Expected output:
+  ─────────────────────────────────────────────────────────────────────────
+  name                          requested state   instances   urls
+  product-catalog-api           started           1/1         product-catalog-api.cfapps.us10-001...
+  product-catalog-approuter     started           1/1         product-catalog-approuter.cfapps.us10-001...
+  ─────────────────────────────────────────────────────────────────────────
+
+  If any app shows "crashed" or "stopped":
+    cf logs product-catalog-api --recent
+    Look for [DB] errors (wrong credentials) or MODULE_NOT_FOUND (missing npm install)
+
+Step 9.6 — Set CORS_ORIGIN on the API (required)
+──────────────────────────────────────────────────
+  The API must allow requests from the approuter URL.  After deployment,
+  get the exact approuter URL:
+
+    cf apps
+    (look for the product-catalog-approuter URL)
+
+  Then set the CORS_ORIGIN environment variable:
+
+    cf set-env product-catalog-api CORS_ORIGIN https://<your-approuter-url>
+    cf restage product-catalog-api
+
+  For this account, based on the approuter URL already observed, the command is:
+
+    cf set-env product-catalog-api CORS_ORIGIN https://56bfb187trial-dev-product-catalog-approuter.cfapps.us10-001.hana.ondemand.com
+    cf restage product-catalog-api
+
+  NOTE: cf restage restarts the app with the new environment variable applied.
+  Watch the logs after restage to confirm the app starts successfully.
+
+Step 9.7 — Test the deployed API
+──────────────────────────────────
+  Find your API URL:
+    cf app product-catalog-api  (look at "routes:")
+
+  Test health (directly on the API app):
+    GET https://<api-url>/health
+    → { "status": "ok", "database": true, ... }
+
+  Test through the approuter (as the browser will use):
+    GET https://<approuter-url>/api/v1/products/catalog
+    → { "success": true, "data": { "products": [...25 items...] } }
+
+  If "database": false in the health check:
+    → HANA credentials in VCAP_SERVICES are wrong or the service is unbound
+    → Run: cf env product-catalog-api
+    → Look for VCAP_SERVICES → "hana" → "credentials" to verify the values
+    → If missing: cf bind-service product-catalog-api product-catalog-hana
+                  cf restage product-catalog-api
+
+
+
+
+================================================================================
+10. PHASE 7 — VERIFY THE DEPLOYMENT
+================================================================================
+
+Step 10.1 — Check app health
+──────────────────────────────
+  cf app product-catalog-api
+  → Status should be: running
+
+  curl https://product-catalog-api.cfapps.<region>.hana.ondemand.com/health
+  → { "status": "ok", "database": true, "uptime": ..., "timestamp": ... }
+
+  If database is false: check cf logs product-catalog-api --recent
+  and look for [DB] errors.
+
+Step 10.2 — Test API endpoints
+────────────────────────────────
+  GET  https://<approuter-url>/api/v1/products/catalog
+  → 25 products with full data (including tags, category, supplier)
+
+  GET  https://<approuter-url>/api/v1/products/stats
+  → { totalProducts: 25, activeProducts: 20, ... }
+
+Step 10.3 — Test the full UI
+──────────────────────────────
+  Open the approuter URL in a browser:
+    https://product-catalog-approuter.cfapps.<region>.hana.ondemand.com
+
+  Test all operations:
+    ✓ Home dashboard loads with 7 KPI tiles showing correct counts
+    ✓ Product List loads all 25 products with pagination
+    ✓ Search and filter work correctly
+    ✓ Product Detail page opens for individual products
+    ✓ Create a new product → it appears in the list
+    ✓ Edit a product → changes are saved
+    ✓ Delete a product → it disappears from the list
+
+
+
+
+================================================================================
+11. ROLLBACK GUIDE — HOW TO SWITCH BACK TO AZURE SQL SERVER
+================================================================================
+
+If you need to revert to Azure SQL Server at any point, follow these steps:
+
+Step R1 — Restore mssql in package.json
+──────────────────────────────────────────
+  In backend/package.json:
+    — Remove @sap/hana-client from dependencies
+    — Remove the _removedDependencies_sqlServer_restore_if_rolling_back key
+    — Add back: "mssql": "^10.0.4"
+  Run: cd backend && npm install
+
+Step R2 — Restore environment.js
+──────────────────────────────────
+  In backend/src/config/environment.js:
+    — In parseCFServices(): un-comment the SQL Server block; comment out the HANA block
+    — In the db config: un-comment the SQL Server block; comment out the HANA block
+
+Step R3 — Restore database.js
+──────────────────────────────
+  Replace the entire file with the original mssql implementation.
+  The original is preserved in full in the SQL SERVER REFERENCE comment block
+  at the bottom of the current database.js.
+
+Step R4 — Restore BaseRepository.js
+──────────────────────────────────────
+  In withTransaction():
+    — Replace with the original sql.Transaction / sql.Request pattern
+  In query() and exec():
+    — Change err.code check back to err.number
+
+Step R5 — Restore repositories
+────────────────────────────────
+  Revert the following repository files to use [dbo].[TableName] syntax,
+  the original MERGE patterns, the stored procedure calls, and
+  new sql.Request(transaction):
+    — product.repository.js
+    — category.repository.js
+    — supplier.repository.js
+
+Step R6 — Restore error.middleware.js
+────────────────────────────────────────
+  Un-comment the SQL Server error block.
+  Comment out the HANA error block.
+  Change condition back to: if (!err.isOperational && err.number)
+
+Step R7 — Restore mta.yaml
+────────────────────────────
+  — Un-comment: product-catalog-mssql resource
+  — Comment out: product-catalog-hana resource
+  — In product-catalog-api requires: switch to product-catalog-mssql
+
+Step R8 — Restore .env
+────────────────────────
+  Replace HANA variables with SQL Server variables:
+    DB_HOST, DB_PORT=1433, DB_NAME, DB_USER, DB_PASSWORD,
+    DB_ENCRYPT=true, DB_TRUST_CERT=false
+
+
+
+
+================================================================================
+12. KEY SQL DIFFERENCES REFERENCE TABLE
+================================================================================
+
+  Feature                SQL Server (T-SQL)                HANA SQL
+  ─────────────────────────────────────────────────────────────────────────────
+  Table reference        [dbo].[Products]                  "Products"
+  Column reference       [ProductID]                       "ProductID"
+  Parameter              @paramName                        ? (positional)
+  String concat          'a' + 'b' or N'%' + @p + N'%'    'a' || 'b' or ? with '%x%'
+  Pagination             OFFSET x ROWS FETCH NEXT y ONLY   LIMIT y OFFSET x
+  Boolean column type    BIT (0/1)                         BOOLEAN (true/false)
+  Auto-increment         IDENTITY(1,1)                     GENERATED BY DEFAULT AS IDENTITY
+  Sequence query         EXEC sp_GetNext... (custom proc)   SELECT "Seq".NEXTVAL FROM DUMMY
+  MERGE source           USING (VALUES (...)) AS s (col)   USING (SELECT ? AS col FROM DUMMY)
+  Conditional SQL        IF ... BEGIN ... END               Not in plain SQL (use procedures)
+  NULL safe compare      ISNULL(col, '')                   IFNULL(col, '')
+  Current timestamp      GETDATE() or GETUTCDATE()         CURRENT_TIMESTAMP or NOW()
+  Select from nothing    SELECT 1                          SELECT 1 FROM DUMMY
+  Max string type        NVARCHAR(MAX)                     NCLOB
+  Date/time type         DATETIME2                         TIMESTAMP
+  Multiple result sets   Supported in one query            NOT supported; split queries
+  Error code property    err.number                        err.code (typeof === "number")
+  Unique violation code  2627                              301
+  FK violation code      547                               461
+  NOT NULL violation     515                               307
+
+
+
+
+================================================================================
+13. TROUBLESHOOTING
+================================================================================
+
+Problem: Connection refused / timeout when starting locally
+Solution:
+  1. SAP HANA Cloud has an IP allowlist.  Go to:
+     BTP Cockpit → SAP HANA Cloud Central → Your instance → Connections
+     → Edit Allowed Connections
+     Add your local IP address, or temporarily set to "Allow All" for testing.
+  2. Verify DB_HOST, DB_PORT=443, DB_USER, DB_PASSWORD in .env.
+  3. Run a connectivity test:
+       node -e "const hana=require('@sap/hana-client');
+                const c=hana.createConnection();
+                c.connect({serverNode:'host:443',uid:'user',pwd:'pass',
+                           encrypt:'TRUE',sslValidateCertificate:'FALSE'},
+                  err=>console.log(err||'connected'));"
+
+Problem: @sap/hana-client fails to install (native addon build error)
+Solution:
+  — Install build tools (see Phase 4)
+  — Use a pre-built binary: npm install @sap/hana-client --prefer-offline
+  — On BTP, the buildpack handles this automatically
+
+Problem: "ProductIDSeq" does not exist when creating a product
+Solution:
+  The sequence was not created.  Re-run 001_schema.sql.
+
+Problem: Stats endpoint returns all zeros
+Solution:
+  The seed data was not inserted.  Run 002_seed_data.sql.
+
+Problem: MERGE statement fails with syntax error in HANA
+Solution:
+  Ensure you are using double quotes for identifiers ("TableName") not
+  square brackets.  HANA uses double-quote standard SQL identifiers.
+
+Problem: Local app works but BTP deploy shows database=false
+Solution:
+  1. Verify the HANA service is bound: cf env product-catalog-api
+     Look for VCAP_SERVICES → "hana" → credentials
+  2. Verify environment.js parseCFServices reads service name "product-catalog-hana"
+  3. Check cf logs product-catalog-api --recent for [DB] errors
+
+Problem: cf deploy fails: "service product-catalog-hana not found"
+Solution:
+  Create the service before deploying:
+    cf create-service hana hana-free product-catalog-hana
+  Wait for: cf service product-catalog-hana → status: create succeeded
+
+Problem: Products have no tags after creation
+Solution:
+  The MERGE INTO "Tags" and MERGE INTO "ProductTags" rely on the unique
+  constraint on "TagName".  Verify 001_schema.sql created the UQ_Tags_Name
+  constraint.  Check: SELECT * FROM "Tags" after creating a product with tags.
+
+Problem: cf create-service hana schema fails / plan not found
+Solution:
+  Run: cf marketplace -e hana
+  Confirm "schema" appears in the list.
+  If your space has no HANA service entitlement at all, contact your BTP
+  admin to assign the HANA service entitlement to your subaccount.
+  In a trial account it is usually pre-assigned.
+
+Problem: Service key shows "port": "30015" instead of "443"
+Solution:
+  Some shared HANA systems expose port 30015 (unencrypted) or 30017 (SSL)
+  instead of 443.  Update DB_PORT in .env to match exactly what the service
+  key shows.  The @sap/hana-client connects on whatever port you specify.
+  If the port is 30017, also set DB_SSL_VALIDATE_CERT=false.
+
+Problem: "schema" plan credentials use a different field name for the schema
+Solution:
+  On some BTP regions the schema field may be named "schema" or "currentschema".
+  Check the raw service key JSON carefully.  If neither field exists, use
+  the "user" value as the schema name — they are always identical for the
+  schema plan.
+
+
+
+
+================================================================================
+14. GLOSSARY
+================================================================================
+
+  Term                  Definition
+  ─────────────────────────────────────────────────────────────────────────────
+  HANA Cloud            SAP's cloud-native in-memory database-as-a-service
+                        offered on SAP BTP.  NOT an ERP system.
+  S/4HANA Cloud         SAP's cloud ERP application.  NOT a database product.
+  BTP                   SAP Business Technology Platform — the cloud platform
+                        hosting both the HANA Cloud database and the app.
+  Cloud Foundry (CF)    The PaaS runtime within BTP where Node.js apps run.
+  MTA                   Multi-Target Application — BTP's deployment package
+                        format defined in mta.yaml.
+  VCAP_SERVICES         CF runtime environment variable injected into apps that
+                        contains all service binding credentials as JSON.
+  HDI                   HANA Deployment Infrastructure — a schema lifecycle
+                        management system.  NOT used in this app (direct
+                        connection is used instead).
+  SEQUENCE              A HANA object that generates unique sequential integers.
+                        Used here as a replacement for the SQL Server stored
+                        procedure that generated ProductIDs.
+  MERGE INTO            A HANA SQL statement that combines INSERT + UPDATE
+                        (upsert) in a single atomic operation.
+  HanaRequest           A custom class in database.js that mimics the mssql
+                        Request interface, converting named @params to
+                        positional ? for the HANA driver.
+  HanaPool              A custom connection pool class in database.js that
+                        manages a bounded set of HANA connections.
+  HanaTransactionContext A wrapper around a single HANA connection that is in
+                        autoCommit=false mode, used during transactions.
+  vw_ProductFull        A HANA VIEW that joins Products, Categories, Suppliers,
+                        and Tags into a flat row.  Equivalent to the SQL Server
+                        view of the same name.
+  STRING_AGG            A SQL function (supported in HANA Cloud) that
+                        concatenates values from multiple rows into one string
+                        with a separator.  Used in vw_ProductFull to aggregate
+                        tag names into a comma-separated value.
+
+
+================================================================================
+END OF GUIDE
+Product Catalog Manager — HANA Cloud Migration Guide
+================================================================================

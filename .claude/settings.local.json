@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell.exe -ExecutionPolicy Bypass -File \"C:\\\\Users\\\\NnaemekaOkalla\\\\Documents\\\\Fiori\\\\App\\\\Doc\\\\convert_architecture_v2.ps1\" 2>&1)"
+    ]
+  }
+}

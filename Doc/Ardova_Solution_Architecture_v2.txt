@@ -1,0 +1,1344 @@
+================================================================================
+
+        ARDOVA ENERGY PLC
+        TRADE AND SUPPLY MANAGEMENT SYSTEM
+
+        Solution Architecture and Technical Design Document
+
+        Prepared by   : WYZE Solutions — SAP Practice
+        Document Ref  : WYZE-ARDOVA-SAD-001
+        Version       : 2.0
+        Classification: Confidential — Client Restricted
+        Date          : March 2026
+
+================================================================================
+
+
+
+
+DOCUMENT CONTROL
+────────────────────────────────────────────────────────────────────────────────
+
+Version   Date            Author                    Change Description
+────────────────────────────────────────────────────────────────────────────────
+1.0       March 2026      WYZE SAP Practice          Initial draft
+2.0       March 2026      WYZE SAP Practice          Full revision — scoped
+                                                     exclusively to SAP
+                                                     S/4HANA Public Cloud
+                                                     Edition. Architecture
+                                                     realigned to Clean Core
+                                                     principles. Removed all
+                                                     on-premise and ECC-
+                                                     specific concepts.
+────────────────────────────────────────────────────────────────────────────────
+
+Reviewer Sign-Off:
+
+  Solution Architect     : _________________________    Date: __________
+  S/4HANA Functional Lead: _________________________    Date: __________
+  Client IT Director     : _________________________    Date: __________
+
+
+
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  1.0   Executive Summary
+  2.0   Scope, Constraints, and Platform Declaration
+  3.0   Architectural Philosophy — Clean Core on S/4HANA Public Cloud
+  4.0   High-Level Solution Architecture
+  5.0   Component 1 — Trade Card (Custom Business Object)
+  6.0   Component 2 — Trade Finance (Treasury Management)
+  7.0   Component 3 — Trade Operations (Transportation Management)
+  8.0   Data Flow and Cross-Component Integration
+  9.0   SAP BTP — Side-by-Side Extensions and Analytics
+  10.0  Authorization and Access Control
+  11.0  Workflow and Approval Design
+  12.0  Edge Cases and Resilience Design
+  13.0  Non-Functional Requirements
+  14.0  Glossary
+
+
+
+
+================================================================================
+1.0   EXECUTIVE SUMMARY
+================================================================================
+
+This document establishes the definitive solution architecture for the Ardova
+Trade and Supply Management System, implemented entirely on SAP S/4HANA Public
+Cloud Edition. It supersedes all prior architectural drafts and reflects the
+decisions reached during the solution design workshops conducted with Ardova's
+Trading Desk, Trade Finance, and Trade Operations leadership.
+
+The system addresses a commercially critical gap in Ardova's current operating
+model: the absence of a single, integrated platform that connects the negotiation
+of petroleum cargo contracts with the financial instruments that fund those
+contracts and the logistics operations that deliver them. Today, these three
+functions operate with significant information latency between them — a condition
+that introduces pricing risk, operational delays, and an inability to monitor
+the company's real-time trading position with any degree of confidence.
+
+The architecture adopted here is built around three purposefully designed
+components, each mapped to an existing or extensible capability within
+S/4HANA Public Cloud:
+
+  (i)   A Custom Business Object, referred to throughout this document as the
+        Trade Card, serves as the master record for every trade transaction.
+        It is created at the moment a contract is agreed at the Trading Desk
+        and assigned a unique transaction identifier in the format PM/YYYY/NNN.
+        This identifier becomes the common reference across all three components.
+
+  (ii)  The Treasury Management module, native to S/4HANA Public Cloud, is
+        configured and extended to handle all Trade Finance activities — from
+        Form M application through to Letter of Credit issuance, Bills for
+        Collection, Bank Guarantee management, and cargo insurance documentation.
+        Users access Trade Finance by entering the Trade Card ID, which
+        immediately surfaces the relevant contract data without re-entry.
+
+  (iii) The Transportation Management module, equally native to S/4HANA Public
+        Cloud, is configured and extended to manage Trade Operations — covering
+        vessel deployment, cargo movement, service provider coordination,
+        regulatory notifications, multi-point volume capture, and a real-time
+        view of the trading position for each active transaction.
+
+The system is designed in strict alignment with SAP's Clean Core principle,
+meaning all extensions are implemented through the designated extensibility
+channels provided by S/4HANA Public Cloud — Key User Extensibility for field
+and logic additions to standard objects, and SAP Business Technology Platform
+(BTP) for analytics, workflow automation, and any capability that sits outside
+the core system. No modifications are made to standard SAP code.
+
+
+
+
+================================================================================
+2.0   SCOPE, CONSTRAINTS, AND PLATFORM DECLARATION
+================================================================================
+
+2.1   Platform Declaration
+────────────────────────────
+This document applies exclusively to SAP S/4HANA Public Cloud Edition.
+
+All architectural decisions, configuration approaches, extensibility mechanisms,
+and integration patterns described herein are valid for and restricted to the
+Public Cloud edition of S/4HANA. Any concept, transaction code, configuration
+path, or development approach that is exclusive to SAP S/4HANA On-Premise,
+SAP ECC, or SAP S/4HANA Private Cloud has been deliberately excluded.
+
+The distinction matters for the following reasons:
+
+  —  S/4HANA Public Cloud enforces a strictly managed extensibility model.
+     Customers extend the system through approved channels only: the Custom
+     Business Objects application, the Custom Fields and Logic application,
+     and side-by-side extensions on SAP BTP. Direct modification of SAP
+     standard objects, programs, or database structures is neither permitted
+     nor possible in the Public Cloud edition.
+
+  —  System configuration in S/4HANA Public Cloud is performed through
+     Fiori-based configuration applications accessed within the system,
+     primarily through the "Configure Your Solution" application and the
+     relevant module setup apps. There is no direct access to the traditional
+     ABAP customising environment (IMG) as an open development tool.
+
+  —  All custom user interfaces are built as SAPUI5 applications deployed on
+     SAP BTP Cloud Foundry, consuming OData services exposed by the S/4HANA
+     system. They are not developed as additions to the core system itself.
+
+  —  Workflow and business process automation is handled through SAP Build
+     Process Automation on BTP — not through any classical SAP workflow engine.
+
+2.2   Modules in Scope
+────────────────────────
+The following standard S/4HANA Public Cloud modules are in scope:
+
+  Module                          Purpose in this Solution
+  ─────────────────────────────────────────────────────────────────────────────
+  Treasury Management (TRM)       Trade Finance — financial instruments,
+                                  payment modes, regulatory documentation
+  Transportation Management (TM)  Trade Operations — cargo logistics, vessel
+                                  management, service providers, volume capture
+  Materials Management (MM)       Purchase contracts as the foundational
+                                  procurement document linked to the Trade Card
+  Financial Accounting (FI)       Cost posting, P&L recording on cargo closure
+  Controlling (CO)                Profit centre assignment and cost tracking
+
+2.3   Out of Scope
+────────────────────
+  —  SAP S/4HANA On-Premise or Private Cloud configurations
+  —  Any third-party ERP or logistics system integration (Phase 2 consideration)
+  —  ABAP development outside of the Custom Logic framework within the CBO app
+  —  Physical commodity hedging or exchange-traded derivatives management
+  —  Human capital or payroll considerations
+
+
+
+
+================================================================================
+3.0   ARCHITECTURAL PHILOSOPHY — CLEAN CORE ON S/4HANA PUBLIC CLOUD
+================================================================================
+
+3.1   What Clean Core Means for this Implementation
+─────────────────────────────────────────────────────
+SAP's Clean Core principle, which is foundational to the Public Cloud edition,
+establishes a clear contract between the customer and the platform: the standard
+system remains untouched and upgradeable, while customer-specific requirements
+are addressed through structured extensibility. For Ardova, this means every
+customisation in this solution has a defined home:
+
+  Requirement Type                  Extensibility Approach
+  ─────────────────────────────────────────────────────────────────────────────
+  New business object (Trade Card)  Custom Business Objects application
+  Additional fields on standard     Custom Fields and Logic application
+  objects (TRM, TM)                 (Key User Extensibility)
+  Custom business logic on CBOs     Custom Logic within the CBO application
+  Workflow and approvals            SAP Build Process Automation (BTP)
+  Custom Fiori applications         SAPUI5 apps deployed on SAP BTP CF
+  Real-time analytics               SAP Analytics Cloud, embedded in BTP apps
+  System integration                SAP Integration Suite (BTP)
+  ─────────────────────────────────────────────────────────────────────────────
+
+3.2   Implications for Long-Term Supportability
+─────────────────────────────────────────────────
+By adhering strictly to these extensibility channels, the Ardova implementation
+maintains a system that can receive SAP quarterly updates without the risk of
+custom code being overwritten or broken. This is not merely a theoretical benefit
+— in practice, it means the Ardova team can stay current with S/4HANA Public
+Cloud innovations (new analytical capabilities, updated module features, security
+patches) without a costly upgrade project each time. For a trading business
+operating in a volatile commodity environment, the ability to adopt new platform
+capabilities quickly represents a genuine competitive consideration.
+
+3.3   The Principle of Standard Before Custom
+───────────────────────────────────────────────
+Throughout this design, every requirement was first evaluated against available
+standard functionality. Custom development was introduced only where no standard
+configuration path could meet the requirement within an acceptable tolerance.
+The result is a solution where the core transaction and financial logic sits in
+standard SAP modules (TRM and TM), while the Trade Card CBO provides the
+connective layer and master reference that binds them together. The effort and
+risk of custom development is therefore confined to where it genuinely adds
+value — not distributed across the system as a default approach.
+
+
+
+
+================================================================================
+4.0   HIGH-LEVEL SOLUTION ARCHITECTURE
+================================================================================
+
+4.1   The Three-Component Model
+─────────────────────────────────
+
+The solution is structured around three interconnected components. The Trade Card
+is the origin point — it is where every transaction begins and where the
+authoritative contract record lives. The Treasury Management module and the
+Transportation Management module each consume that master record, adding the
+depth of detail appropriate to their respective functions.
+
+                         ┌─────────────────────────────────┐
+                         │         TRADE CARD (CBO)         │
+                         │   Custom Business Object App     │
+                         │   Master Contract Record         │
+                         │   ID Format: PM/YYYY/NNN         │
+                         │   Source of truth for all        │
+                         │   downstream activity            │
+                         └────────────┬──────────┬──────────┘
+                                      │          │
+                    On save: triggers │          │ activities in
+                    downstream access │          │ both modules
+                                      │          │
+              ┌───────────────────────▼──┐    ┌──▼─────────────────────────┐
+              │   TRADE FINANCE           │    │   TRADE OPERATIONS          │
+              │   Treasury Management     │    │   Transportation Management │
+              │   (Standard S/4HANA PC)   │    │   (Standard S/4HANA PC)    │
+              │   Extended via Key User   │    │   Extended via Key User     │
+              │   Extensibility           │    │   Extensibility             │
+              │                           │    │                             │
+              │   Enter PM/YYYY/NNN →     │    │   Enter PM/YYYY/NNN →       │
+              │   Contract data surfaces  │    │   Contract data surfaces    │
+              │   automatically           │    │   automatically             │
+              │                           │    │                             │
+              │   LC / Bills for Coll. /  │    │   Vessel Management         │
+              │   Bank Guarantee /        │    │   Service Providers         │
+              │   Form M / Insurance /    │    │   Regulatory Notifications  │
+              │   Proforma Invoice        │    │   Volume Capture            │
+              │                           │    │   Real-Time Position View   │
+              └───────────────────────────┘    └────────────────────────────┘
+                            │                                  │
+                            └──────────────┬───────────────────┘
+                                           │
+                         ┌─────────────────▼───────────────────┐
+                         │       SAP BUSINESS TECHNOLOGY        │
+                         │           PLATFORM (BTP)             │
+                         │                                      │
+                         │  Custom Fiori Apps (3 applications)  │
+                         │  SAP Build Process Automation        │
+                         │  SAP Integration Suite               │
+                         │  SAP Analytics Cloud                 │
+                         │  SAP Build Work Zone (Launchpad)     │
+                         └──────────────────────────────────────┘
+
+4.2   Transaction Lifecycle
+─────────────────────────────
+Every trade transaction in this system moves through a defined sequence. The
+sequence is enforced through status management on the Trade Card CBO, and it
+reflects the actual operational reality of how Ardova's business functions:
+
+  Stage 1 — Contract Origination (Trading Desk)
+    The Trading Desk creates a Trade Card in the Custom Business Objects app.
+    All key commercial parameters are recorded: product type, supplier,
+    contracted volume, pricing type, delivery terms, and Laycan window. On
+    saving the record, the system assigns the unique transaction ID in the
+    format PM/YYYY/NNN. From this point, the transaction ID is the universal
+    reference across all activities.
+
+  Stage 2 — Trade Finance (Treasury Management)
+    The Trade Finance team opens the Treasury Management application and enters
+    the transaction ID. The system surfaces all contract data from the Trade Card
+    immediately. The Finance team then proceeds to establish the appropriate
+    payment instrument (LC, Bank Guarantee, Bills for Collection, or Advance
+    Payment), apply for Form M where required, obtain insurance coverage, and
+    manage all associated documentary processes. Completion of this stage and its
+    approval gate is recorded against the Trade Card status.
+
+  Stage 3 — Trade Operations (Transportation Management)
+    The Trade Operations team opens the Transportation Management application and
+    enters the same transaction ID. Contract and finance data already recorded
+    against this ID are displayed. The Operations team maintains vessel
+    information, nominates service providers, manages regulatory notifications,
+    records all volume measurements across the cargo journey, and monitors the
+    real-time trading position. Final cargo closure, once all costs are confirmed
+    and reconciled, is executed here and posts the transaction to FI/CO.
+
+  Note on Parallelism: While the standard process sequence places Trade Finance
+  before Trade Operations, the system does not technically prevent the Operations
+  team from beginning their data entry in parallel. In practice, certain
+  operational activities — particularly vessel positioning and agent nomination —
+  must commence well before Finance documentation is complete, given shipping
+  lead times. The architecture accommodates this operational reality while
+  preserving the Finance approval gate as a precondition for final cargo closure.
+
+
+
+
+================================================================================
+5.0   COMPONENT 1 — TRADE CARD (CUSTOM BUSINESS OBJECT)
+================================================================================
+
+5.1   Design Rationale
+────────────────────────
+The Trade Card is the architectural cornerstone of this solution. In S/4HANA
+Public Cloud, the appropriate and supported mechanism for creating a net-new
+business object — one that does not exist in any standard module — is the Custom
+Business Objects application, available in the Fiori Launchpad. This application
+provides a structured, upgrade-safe way to define a new data object with its own
+fields, business logic, user interface, and number determination, all without
+modifying any standard SAP object.
+
+The Trade Card is deliberately designed to be a summary and master record rather
+than a data-entry-heavy screen. Its purpose is to capture the essential contract
+parameters, generate the unique transaction ID, and provide the reference that
+all downstream activity will anchor to. The detailed functional work — the
+specifics of the LC terms, the vessel scheduling, the volume measurements — lives
+in the respective standard module applications.
+
+5.2   Creating the Trade Card in the Custom Business Objects Application
+─────────────────────────────────────────────────────────────────────────
+In S/4HANA Public Cloud, the Custom Business Objects application is accessed
+directly from the Fiori Launchpad. A Key User or an administrator with the
+appropriate business role opens this application and creates the object through
+a guided interface. No development environment, no programming IDE, and no
+ABAP workbench access is required or appropriate for this step.
+
+The object creation process in the application involves:
+  —  Defining the object name (Trade Card) and its technical identifier
+  —  Configuring number determination (the PM/YYYY/NNN sequence)
+  —  Defining all field nodes (the Trade Card header with its field list)
+  —  Configuring the generated UI (which fields appear, in what order)
+  —  Publishing the object to make it available to users
+
+5.3   Trade Card Field Model
+──────────────────────────────
+
+The Trade Card header node contains the following fields. All fields are
+defined within the Custom Business Objects application using the available
+field types (Text, Number, Date, Checkbox, Code List, Amount).
+
+IDENTIFICATION AND STATUS
+
+  Field Label               Field Type    Description
+  ─────────────────────────────────────────────────────────────────────────────
+  Trade Card ID             Text (20)     Auto-generated. Format: PM/YYYY/NNN.
+                                          Read-only after creation.
+  Status                    Code List     DRAFT / ACTIVE / FINANCE IN PROGRESS /
+                                          FINANCE APPROVED / OPS IN PROGRESS /
+                                          CLOSED / CANCELLED
+  Contract Type             Code List     Confirmed Order / Open Market
+  Created By                Text (80)     Auto-populated from logged-in user
+  Created On                Date          Auto-populated on save
+
+TRADING DESK — DEMAND AND CONTRACT INFORMATION
+
+  Field Label               Field Type    Description
+  ─────────────────────────────────────────────────────────────────────────────
+  Product Type              Code List     AGO / PMS / DPK / HFO
+  Product Specification     Text (100)    Technical product specification
+  Customer Name             Text (80)     Applicable for Confirmed Orders only
+  Customer Reference        Text (40)     Customer purchase order or reference
+  Supplier Name             Text (80)     Name of the supplying counterparty
+  Supplier Code             Text (10)     SAP Business Partner ID of supplier
+  Total Volume (MT)         Number        Contracted cargo volume in metric tonnes
+  Total Volume (Litres)     Number        Computed from MT using conversion factor
+  Source of Product         Code List     Local / Imported
+  Delivery Terms            Code List     CIF / FOB / CFR / DES
+  Load Port                 Text (50)     Port or terminal of origin
+  Discharge Port            Text (50)     Receiving terminal or depot
+  Laycan Start              Date          First day of agreed vessel arrival window
+  Laycan End                Date          Last day of agreed vessel arrival window
+  Contract Reference        Text (40)     Supplier contract document number
+  Purchase Contract ID      Text (10)     Linked SAP Purchase Contract number
+
+PRICING INFORMATION
+
+  Field Label               Field Type    Description
+  ─────────────────────────────────────────────────────────────────────────────
+  Pricing Type              Code List     Fixed / Floating
+  Fixed Price (USD/MT)      Amount        Applicable for Confirmed Orders only
+  Pricing Formula           Text (100)    e.g. "ICE Gasoil + USD 45/MT"
+  Premium (USD/MT)          Amount        Agreed premium above benchmark
+  Pricing Period Start      Date          First day of the pricing window
+  Pricing Period End        Date          Last day of the pricing window
+  Currency                  Code List     USD / NGN
+
+SUMMARY TOTALS (System-Maintained)
+
+  Field Label               Field Type    Description
+  ─────────────────────────────────────────────────────────────────────────────
+  Total Triggered (MT)      Number        Running total of priced volume
+  Total Unpriced (MT)       Number        Remaining open/unpriced quantity
+  Provisional Cargo Value   Amount        Estimated total cost (NGN)
+  Final Cargo Value         Amount        Confirmed total cost post-closure
+  Roll-Over Count           Number        Number of pricing period extensions
+
+TRADE FINANCE SUMMARY (Cross-Reference Fields)
+
+  Field Label               Field Type    Description
+  ─────────────────────────────────────────────────────────────────────────────
+  Payment Mode              Code List     LC / Bills for Collection / Cash /
+                                          Bank Guarantee / Advance Payment
+  TRM Transaction ID        Text (16)     Reference to TRM financial instrument
+  Finance Status            Code List     Pending / In Progress / Approved
+  Finance Approved By       Text (80)     Name of Finance approver
+  Finance Approved On       Date          Date of Finance approval
+
+TRADE OPERATIONS SUMMARY (Cross-Reference Fields)
+
+  Field Label               Field Type    Description
+  ─────────────────────────────────────────────────────────────────────────────
+  Vessel Name               Text (50)     Assigned vessel name
+  TM Freight Order ID       Text (30)     Linked Transportation Management order
+  Operations Status         Code List     Pending / In Progress / Completed
+  Cargo Closure Date        Date          Date of final cargo close
+
+5.4   Unique Transaction ID — Number Determination
+────────────────────────────────────────────────────
+The transaction ID format PM/YYYY/NNN is configured within the Custom Business
+Objects application under the number determination settings of the Trade Card
+object. The configuration specifies:
+
+  Prefix              : PM
+  Year Segment        : Derived from the system date at time of creation
+  Sequence Number     : Configured as a three-digit incrementing counter,
+                        reset annually
+  Format Assembly     : PM / {YEAR} / {SEQUENCE}
+  Example Output      : PM/2026/001, PM/2026/002 ... PM/2026/130
+
+The numbering resets at the beginning of each calendar year. This means
+PM/2026/130 and PM/2027/001 can coexist in the system without conflict, as the
+year forms part of the unique key. All downstream references in Treasury
+Management and Transportation Management store and display this full identifier.
+
+5.5   Custom Logic on the Trade Card
+──────────────────────────────────────
+Within the Custom Business Objects application, the Custom Logic section allows
+business rules to be implemented using a cloud-compliant subset of ABAP
+statements. These rules execute at defined trigger points — Before Save,
+After Save, On Field Change — and are maintained entirely within the application,
+not in an external development environment.
+
+The following custom logic is defined for the Trade Card:
+
+  Trigger: Before Save — New Entry
+    —  If Contract Type is "Confirmed Order" and Customer Name is empty,
+       raise a validation error: "Customer Name is mandatory for Confirmed Orders."
+    —  If Pricing Type is "Fixed" and Fixed Price (USD/MT) is empty,
+       raise a validation error: "Fixed Price must be specified."
+    —  If Pricing Type is "Floating" and Pricing Formula is empty,
+       raise a validation error: "Pricing Formula is required for floating-price
+       contracts."
+    —  Compute Total Volume (Litres) from Total Volume (MT) using the
+       applicable product conversion factor (configurable per Product Type
+       in a supporting Code List or lookup).
+
+  Trigger: After Save — New Entry
+    —  Set Status to "Active"
+    —  Set Total Triggered (MT) to zero
+    —  Set Total Unpriced (MT) equal to Total Volume (MT)
+    —  Write an entry to the audit log child node recording the creation
+       event, the creating user, and the timestamp
+
+  Trigger: On Field Change — Status
+    —  If Status changes to "Finance Approved", record Finance Approved By
+       and Finance Approved On automatically from the current session
+    —  If Status changes to "Closed", record Cargo Closure Date from the
+       system date
+
+5.6   Trade Card User Interface
+─────────────────────────────────
+The Custom Business Objects application generates a standard Fiori list and
+object page interface for the Trade Card automatically. This generated UI is
+the primary interface for Trading Desk users and provides:
+
+  —  A list view of all Trade Cards with filtering by Status, Contract Type,
+     Product Type, and date ranges
+  —  A detail page (object page) displaying all field groups in a structured
+     layout, with the transaction ID prominently displayed in the page header
+  —  Section groupings matching the field model above (Identification, Contract
+     Information, Pricing, Trade Finance Summary, Trade Operations Summary)
+  —  An audit log section at the bottom showing all status changes and key
+     events with timestamps and user names
+
+For users of the Trade Finance and Trade Operations modules, the Trade Card
+detail page also acts as a quick-reference summary — they can always open a
+Trade Card by its PM/YYYY/NNN reference to see the full contract picture
+before proceeding with their specific activities.
+
+
+
+
+================================================================================
+6.0   COMPONENT 2 — TRADE FINANCE (TREASURY MANAGEMENT)
+================================================================================
+
+6.1   Why Treasury Management
+───────────────────────────────
+The Treasury Management module in S/4HANA Public Cloud provides a mature,
+audit-ready framework for managing financial instruments and cash flows. For
+Ardova's Trade Finance function, the module's Transaction Manager component —
+specifically its capability to define, track, and manage financial instruments
+through their full lifecycle — covers the majority of what Trade Finance needs
+without requiring custom development. The investment required here is
+primarily in configuration and targeted field extension, rather than building
+from scratch.
+
+The match between TRM capabilities and Ardova's Trade Finance requirements is
+strong:
+
+  Ardova Requirement                TRM Capability
+  ─────────────────────────────────────────────────────────────────────────────
+  Letter of Credit management       Financial transaction with LC product type
+  Bank Guarantee management         Financial transaction with BG product type
+  Bills for Collection              Financial transaction with BC product type
+  Advance Payment tracking          Payment request linked to transaction
+  Form M tracking                   Custom field extension on transaction header
+  Insurance certificate management  Document attachment capability (GOS / DMS)
+  Proforma invoice management       Document attachment + reference field
+  Exchange rate capture per trigger  FX transaction linked to trade position
+  Finance approval gate             SAP Build Process Automation workflow
+  ─────────────────────────────────────────────────────────────────────────────
+
+6.2   Configuration Approach
+──────────────────────────────
+In S/4HANA Public Cloud, the Treasury Management module is configured through
+the Fiori-based configuration applications available within the system. The
+primary path is through the "Configure Your Solution" application, where the
+relevant configuration activities for Financial Supply Chain Management and
+Treasury are organised by topic. This is the correct and supported configuration
+channel for Public Cloud — all settings made here are preserved across system
+updates and are transported via adaptation transports within the managed system
+landscape.
+
+Key configuration activities for this solution:
+
+  PRODUCT TYPES
+  Custom product types are defined to represent each financial instrument used
+  in Ardova's Trade Finance operations:
+
+    ARDLC  — Ardova Letter of Credit
+    ARDBG  — Ardova Bank Guarantee
+    ARDBC  — Ardova Bills for Collection
+    ARDAP  — Ardova Advance Payment
+
+  For each product type, the system configuration specifies the applicable
+  transaction types, flow categories, partner roles, and condition types that
+  govern how the instrument behaves through its lifecycle.
+
+  TRANSACTION TYPES PER INSTRUMENT
+  Under each product type, specific transaction types define the distinct
+  events in an instrument's life:
+
+    For ARDLC (Letter of Credit):
+      LC100 — LC Application and Issuance
+      LC110 — LC Amendment
+      LC120 — LC Utilisation (drawdown upon document presentation)
+      LC130 — LC Cancellation
+
+    For ARDBG (Bank Guarantee):
+      BG100 — BG Issuance
+      BG110 — BG Extension
+      BG120 — BG Return or Cancellation
+
+    For ARDBC (Bills for Collection):
+      BC100 — BC Presentation
+      BC110 — BC Settlement
+
+  BUSINESS PARTNER ROLES
+  All counterparties in Trade Finance transactions are maintained as Business
+  Partners in S/4HANA. The following partner roles are configured:
+
+    ARDSUP  — Supplier / Seller (the commodity counterparty)
+    ARDBNK  — Issuing / Negotiating Bank
+    ARDCBN  — Central Bank of Nigeria (for regulatory tracking)
+
+  CONDITION TYPES
+  Financial charges associated with trade instruments are captured as
+  condition types on each transaction. For Letters of Credit:
+
+    LCCOM  — LC Commission (bank fee, typically a percentage of face value)
+    LCSTMP — Stamp Duty
+    LCINSUR — Insurance Premium linked to the LC
+
+6.3   Key User Field Extensions on Treasury Management
+────────────────────────────────────────────────────────
+Several data points that are specific to Nigerian petroleum trade regulations
+are not present in the standard Treasury Management screens. These are added
+using the Custom Fields and Logic application in S/4HANA Public Cloud — the
+supported extensibility path for adding fields to existing standard objects.
+
+The following custom fields are added to the Financial Transaction object:
+
+  Field Label              Field Type     Applied To         Mandatory
+  ─────────────────────────────────────────────────────────────────────────────
+  Trade Card Reference     Text (20)      Transaction Header  Yes
+  Form M Number            Text (20)      Transaction Header  Yes (imports)
+  Form M Application Date  Date           Transaction Header  Yes (imports)
+  Form M Approval Date     Date           Transaction Header  Conditional
+  NMDPRA Permit Number     Text (40)      Transaction Header  Yes
+  SON Certificate Number   Text (40)      Transaction Header  Yes
+  Depot Licence Reference  Text (40)      Transaction Header  Yes
+  NAFDAC Permit Number     Text (40)      Transaction Header  Conditional
+  Proforma Invoice Ref.    Text (40)      Transaction Header  Yes
+  Insurance Certificate    Text (40)      Transaction Header  Yes
+  Insurance Coverage Amt.  Amount         Transaction Header  Yes
+
+The Trade Card Reference field is the integration key. When a Trade Finance user
+enters a value in this field, a custom logic rule (defined in the Custom Logic
+section of the Custom Fields and Logic application) triggers a lookup to the
+Trade Card CBO and populates the following fields automatically on the screen:
+
+  —  Supplier Name and Supplier Code
+  —  Product Type and Specification
+  —  Total Volume (MT) and Total Volume (Litres)
+  —  Pricing Type and Pricing Formula
+  —  Laycan Start and Laycan End dates
+  —  Load Port and Discharge Port
+  —  Delivery Terms
+
+This automatic population eliminates re-keying of contract data, ensures
+consistency between the Trade Card and the TRM transaction record, and
+reduces the risk of discrepancies between what the Trading Desk agreed and
+what the Finance team submits to the bank.
+
+6.4   Trade Finance Application Flow
+──────────────────────────────────────
+The experience for a Trade Finance officer using this system follows a
+deliberate sequence. Upon receiving notification that a Trade Card has been
+created and activated, the officer opens the Treasury Management application
+from the SAP Build Work Zone (the BTP-hosted Fiori Launchpad):
+
+  Step 1 — Locate Transaction
+    Open the Manage Financial Transactions application. Create a new financial
+    transaction. In the Trade Card Reference field, enter the PM/YYYY/NNN
+    identifier received from the Trading Desk. Contract data auto-populates.
+
+  Step 2 — Regulatory Prerequisites
+    Confirm that all mandatory regulatory permits are in place before proceeding.
+    The NMDPRA Import Permit, SON Certificate, and Depot Licence fields must be
+    completed before the system allows the payment instrument section to be saved.
+    Document scans of each permit are attached directly to the transaction record.
+
+  Step 3 — Select Payment Mode
+    The product type selected (ARDLC, ARDBG, ARDBC, or ARDAP) determines the
+    payment instrument workflow. The screen adapts dynamically to show the fields
+    relevant to the selected instrument.
+
+    For Letter of Credit:
+      The Form M number is entered and the Form M status confirmed. The LC face
+      value, LC expiry date, and issuing bank are recorded. A draft LC document
+      may be attached for review. Once the Trade Finance team confirms the draft
+      is consistent with the contract, the LC is marked as issued.
+
+    For Bills for Collection:
+      The Form M is still required for imports. The BC Presentation date,
+      presenting bank, and collection reference are recorded.
+
+    For Cash Payment (Local Purchases):
+      The payment reference, remittance confirmation number, and payment date
+      are recorded. No Form M is required for local purchases.
+
+    For Bank Guarantee:
+      The BG reference, face value, issuing bank, and expiry date are recorded.
+
+  Step 4 — Proforma Invoice and Insurance
+    The proforma invoice reference and amount are entered. The insurance
+    certificate reference and coverage amount are entered, with the certificate
+    document attached. These two items are prerequisites for the Finance
+    approval action to become available.
+
+  Step 5 — Finance Approval
+    When all required documentation is complete, the Trade Finance officer
+    submits the transaction for approval. An approval workflow (managed in
+    SAP Build Process Automation) routes the record to the designated Trade
+    Finance Approver. The approver receives a task notification in their
+    Fiori inbox, reviews the record, and confirms or rejects the approval.
+    On approval, the Trade Card status is updated automatically to
+    "Finance Approved", and the Trade Operations team is notified.
+
+6.5   Floating Price Management Within TRM
+────────────────────────────────────────────
+For Open Market transactions where the cargo price is determined in stages
+through pricing triggers, Treasury Management is used in conjunction with the
+FX management capability to record each trigger event as a discrete pricing
+action. Each trigger records the ICE Gasoil benchmark rate, the agreed premium,
+and the exchange rate prevailing on the trigger execution date.
+
+A custom pricing log — implemented as a sub-node within the Trade Card CBO —
+maintains the full history of all triggers, their volumes, prices, and exchange
+rates. The TRM transaction for a floating-price cargo remains open until the
+final trigger is confirmed, at which point the cumulative product cost is
+established and the transaction can be settled.
+
+The distinction between the ICE Gasoil price at each trigger date and the
+exchange rate applied at each trigger date is maintained with precision in
+the trigger log. These are two separate variable inputs that change
+independently, and the system records both explicitly for each tranche of
+the cargo that is priced. This level of granularity is essential for accurate
+financial reporting and for satisfying any audit inquiry into the final cost
+attribution of a given cargo.
+
+
+
+
+================================================================================
+7.0   COMPONENT 3 — TRADE OPERATIONS (TRANSPORTATION MANAGEMENT)
+================================================================================
+
+7.1   Why Transportation Management
+─────────────────────────────────────
+The Transportation Management module in S/4HANA Public Cloud manages the
+physical movement of goods from origin to destination. Its native capabilities
+cover freight order management, carrier (vessel) assignment, shipment scheduling,
+service provider management, and freight costing. These capabilities map directly
+to the core activities of Ardova's Trade Operations function.
+
+The match between TM capabilities and Ardova's Trade Operations requirements:
+
+  Ardova Requirement                TM Capability
+  ─────────────────────────────────────────────────────────────────────────────
+  Vessel management                 Carrier and Means of Transport management
+  Freight order per cargo           Freight Order (FO) with custom cargo type
+  Load port / discharge port        Source and destination location management
+  Laycan scheduling                 Freight order scheduling and date management
+  Freight cost management           Freight condition management
+  Service provider management       Carrier and service agent management
+  Cargo event logging               Shipment event recording
+  Volume data at discharge          Delivery quantity management
+  ─────────────────────────────────────────────────────────────────────────────
+
+7.2   Configuration Approach
+──────────────────────────────
+Like Treasury Management, Transportation Management configuration in S/4HANA
+Public Cloud is performed through the Configure Your Solution application and
+the relevant module setup Fiori applications. Key configuration areas include:
+
+  FREIGHT ORDER TYPE
+  A custom freight order type ARDCARGO is created to represent an Ardova
+  petroleum cargo movement. This type is configured with:
+    —  Transport mode: Sea (maritime)
+    —  Dangerous goods relevant: Yes (petroleum products classification)
+    —  Date profile: Requires Laycan Start, Laycan End, Loading Dates,
+       Sailing Date, Arrival Date, Discharge Dates
+    —  Completion profile: All mandatory date and volume fields must be
+       populated before the freight order can be set to Completed status
+
+  MEANS OF TRANSPORT — VESSEL MASTER
+  Vessels are maintained in Transportation Management as Means of Transport.
+  A specific means of transport category ARDVSL (Ardova Vessel) is configured
+  to represent the vessel fleet. Each vessel in the fleet is set up as an
+  individual means of transport record under this category, with its own
+  identifier, name, and capacity parameters.
+
+  SERVICE TYPES FOR PETROLEUM CARGO OPERATIONS
+  Each category of third-party service provider engaged during cargo operations
+  is defined as a distinct service type in TM:
+
+    ARDFEND — Fendering Services
+    ARDSTS  — Ship-to-Ship Transfer Operations
+    ARDPSRV — Port Surveyor Services
+    ARDSTOR — Interim Storage Services
+    ARDLAGNT — Load Port Agent
+    ARDDAGNT — Discharge Port Agent
+
+  Freight conditions for each service type allow the system to capture budgeted
+  service costs at the time the freight order is created, with actual invoiced
+  costs updated when service provider invoices are received and processed.
+
+7.3   Key User Field Extensions on Transportation Management
+─────────────────────────────────────────────────────────────
+Custom fields added via the Custom Fields and Logic application extend the
+standard Freight Order to capture petroleum-specific operational data:
+
+  Field Label                  Field Type    Applied To        Notes
+  ─────────────────────────────────────────────────────────────────────────────
+  Trade Card Reference         Text (20)     Freight Order Hdr  Integration key
+  Bill of Lading Number        Text (30)     Freight Order Hdr  Official BL ref
+  Bill of Lading Date          Date          Freight Order Hdr  BL issue date
+  BL Quantity (MT)             Number        Freight Order Hdr  Official loaded vol
+  Shore Quantity (MT)          Number        Freight Order Hdr  Received at depot
+  Shore Quantity (Litres)      Number        Freight Order Hdr  Received at depot
+  BL-Shore Variance (MT)       Number        Freight Order Hdr  System-computed
+  Vessel IMO Number            Text (20)     Freight Order Hdr  IMO registration
+  Vessel Owner                 Text (80)     Freight Order Hdr  Owner / operator
+  Vessel Flag State            Text (3)      Freight Order Hdr  ISO country code
+  Ownership Type               Code List     Freight Order Hdr  Own / Chartered
+  Charter Party Reference      Text (30)     Freight Order Hdr  If chartered
+  NOR Tendered Date/Time       Date/Time     Freight Order Hdr  Notice of Readiness
+  Free Time Allowed (Hours)    Number        Freight Order Hdr  Per contract
+  Demurrage Rate (USD/Hour)    Amount        Freight Order Hdr  Per contract
+  Demurrage Hours Accrued      Number        Freight Order Hdr  System-computed
+  Demurrage Cost (USD)         Amount        Freight Order Hdr  System-computed
+  Load Port Agent Name         Text (80)     Freight Order Hdr  Agent identity
+  Discharge Port Agent Name    Text (80)     Freight Order Hdr  Agent identity
+  Nigerian Navy Notif. Date    Date          Freight Order Hdr  Regulatory
+  NMDPRA Notification Date     Date          Freight Order Hdr  Regulatory
+  Customs Notification Date    Date          Freight Order Hdr  Regulatory
+  PO Number                    Text (10)     Freight Order Hdr  Linked SAP PO
+  ─────────────────────────────────────────────────────────────────────────────
+
+As with Trade Finance, the Trade Card Reference field drives automatic population
+of contract data from the Trade Card CBO when entered by the Trade Operations
+officer.
+
+The BL-Shore Variance and Demurrage Cost fields are system-computed through
+custom logic defined in the Custom Fields and Logic application:
+
+  BL-Shore Variance (MT) = BL Quantity (MT) — Shore Quantity (MT)
+
+  Demurrage Hours = MAX( 0, Loading Commencement — (NOR Tendered + Free Time) )
+  Demurrage Cost  = Demurrage Hours × Demurrage Rate (USD/Hour)
+
+These computations execute automatically when the relevant input fields are
+saved, removing the need for manual calculation and eliminating the risk of
+arithmetic errors on high-value items.
+
+7.4   Multi-Point Volume Capture
+──────────────────────────────────
+Given the financial significance of volume measurements in petroleum cargo
+operations — where a single metric tonne of AGO may represent USD 700 to 800
+of value — the system maintains a structured volume capture framework as a
+sub-node of the Trade Card CBO. Five measurement points are defined, each
+with its own date/time, volume in MT, volume in litres, and recording user:
+
+  Capture Point            When Recorded
+  ─────────────────────────────────────────────────────────────────────────────
+  Before Loading           Prior to loading operations at load port terminal
+  Bill of Lading           At conclusion of loading (Port Surveyor certified)
+  Vessel Departure         As vessel sails from load port
+  Vessel Arrival           As vessel arrives at discharge port
+  Shore Tank Receipt       At conclusion of discharge into depot tanks
+  ─────────────────────────────────────────────────────────────────────────────
+
+When the Shore Tank Receipt measurement is saved, custom logic automatically
+computes the variance against the Bill of Lading quantity and expresses it as
+both an absolute figure (MT) and a percentage. If the variance exceeds 0.5%,
+the system raises a notification to the Trade Operations Approver and blocks
+the cargo closure action until the variance is formally acknowledged.
+
+7.5   Operational Event Log
+─────────────────────────────
+A chronological event log sub-node on the Trade Card CBO records all significant
+operational milestones with their date, time, and the identity of the recording
+officer:
+
+  Laycan Confirmed / NOR Tendered / Free Time Commenced / Loading Commenced /
+  Loading Completed / Vessel Sailed / Vessel Arrived at Discharge / Regulatory
+  Clearance Obtained / Discharge Commenced / Discharge Completed / Shore Tank
+  Receipt Confirmed / Cargo Closure Initiated
+
+This log forms the basis for performance analysis across voyages and provides
+the date and time records that service provider invoices are validated against.
+
+7.6   Regulatory Notification Tracking
+────────────────────────────────────────
+A dedicated notification tracking sub-node records the dispatch and
+acknowledgement of mandatory regulatory notifications:
+
+  Regulatory Body    Notification Type       Submission Mode
+  ─────────────────────────────────────────────────────────────────────────────
+  Nigerian Navy      Vessel movement          Electronic / Physical
+  NMDPRA             Import notification      Electronic / Physical
+  Nigeria Customs    Import clearance         Electronic
+  ─────────────────────────────────────────────────────────────────────────────
+
+Each notification record captures the date sent, the submission mode (the
+regulatory environment in Nigeria means some authorities continue to require
+physical document submission in addition to or in place of electronic
+notification), the acknowledgement date, and the reference number issued by
+the receiving authority.
+
+7.7   Real-Time Trading Position View
+───────────────────────────────────────
+The real-time trading position is a dynamic view of the net balance between
+volumes purchased and volumes sold or committed at any given moment. This view
+is a critical operational tool for the Trading Desk — it informs trigger
+execution decisions, additional procurement needs, and sales commitment capacity.
+
+The position view is implemented as an embedded SAP Analytics Cloud story within
+the custom Trade Operations Fiori application deployed on BTP. The story reads
+from the Trade Card CBO data in real time, computing:
+
+  Net Position = Total Volume Purchased — Total Volume Sold / Committed
+
+  Positive result → Long position (purchased exceeds sold; price risk if market falls)
+  Negative result → Short position (sold exceeds purchased; supply risk)
+
+The dashboard displays:
+
+  —  Current net position by product type (AGO, PMS, DPK, HFO)
+  —  Breakdown between triggered volume (priced) and unpriced open quantity
+  —  Intra-day position movement chart showing position at each event
+  —  Active cargo table: one row per live Trade Card with triggered,
+     untriggered, and sold volumes per transaction
+  —  Automated threshold alerts when the position crosses into short territory
+     or when an unpriced volume is approaching its pricing period end date
+
+The data underlying this view is refreshed on every trigger execution, every
+sale entry recorded by the Sales team, and every volume capture event. There is
+no end-of-day batch process — position data reflects the current state of the
+system at the moment it is viewed.
+
+
+
+
+================================================================================
+8.0   DATA FLOW AND CROSS-COMPONENT INTEGRATION
+================================================================================
+
+8.1   The Trade Card as the Integration Hub
+─────────────────────────────────────────────
+The Trade Card CBO is the integration hub of this solution. It does not
+replicate data from Treasury Management or Transportation Management — it holds
+a summary reference to each, and each module reads from it when a Trade Card
+ID is entered. This is a pull-based integration design: the downstream module
+requests the contract data it needs from the Trade Card at the moment it is
+needed, rather than data being pushed out proactively.
+
+In S/4HANA Public Cloud, the integration between the CBO and the standard
+modules is achieved through the OData services that both the CBO and the
+standard modules expose. When a user enters a Trade Card ID in either Treasury
+Management or Transportation Management, a Custom Logic rule (defined in the
+Custom Fields and Logic application for each respective object) makes an OData
+call to the Trade Card service, retrieves the relevant contract record, and
+populates the dependent fields on the screen. This is an in-system API call
+that does not require an external integration platform.
+
+8.2   Cross-System Integration via SAP Integration Suite
+──────────────────────────────────────────────────────────
+For integration events that cross the boundary between S/4HANA and BTP — such
+as publishing a Trade Card creation event so that the BTP-hosted Fiori apps
+can respond, or sending workflow notifications, or updating the SAC analytics
+data model — SAP Integration Suite on BTP is the platform. Integration flows
+(iFlows) are designed for each integration event:
+
+  Integration Event                         iFlow Description
+  ─────────────────────────────────────────────────────────────────────────────
+  Trade Card created                        Publishes event to BTP Event Mesh;
+                                            triggers notification to Finance team
+  Finance approval confirmed                Updates Trade Card status; triggers
+                                            notification to Operations team
+  Trigger execution confirmed               Updates position master; refreshes
+                                            position dashboard data
+  Shore volume entered                      Triggers variance calculation check;
+                                            alerts approver if threshold exceeded
+  Cargo closure confirmed                   Posts final cost to FI/CO; triggers
+                                            archive and GL posting workflow
+  CBN exchange rate update (daily)          Updates system exchange rate tables
+                                            for NGN/USD conversion
+  Market price feed (ICE Gasoil)           Updates price reference table for
+                                            trigger execution support
+  ─────────────────────────────────────────────────────────────────────────────
+
+8.3   Event-Driven Architecture
+─────────────────────────────────
+Events are published to SAP BTP Event Mesh using the CloudEvents specification.
+This decouples the producing system (S/4HANA) from the consuming applications
+(BTP Fiori apps, SAC, notification services). Each event carries the Trade Card
+ID as its primary payload key, allowing consuming services to retrieve the
+full record via OData if additional data is needed.
+
+  Event Topic Pattern: ardova/trade/{component}/{event}
+
+  Examples:
+    ardova/trade/card/created
+    ardova/trade/finance/approved
+    ardova/trade/trigger/executed
+    ardova/trade/volume/recorded
+    ardova/trade/cargo/closed
+
+
+
+
+================================================================================
+9.0   SAP BTP — SIDE-BY-SIDE EXTENSIONS AND ANALYTICS
+================================================================================
+
+9.1   What Lives on BTP
+─────────────────────────
+SAP BTP hosts the components of this solution that extend beyond the boundary
+of what S/4HANA Public Cloud natively provides — primarily the custom Fiori
+user interfaces, the workflow automation, the analytics layer, and the
+integration middleware.
+
+  BTP Component              Purpose
+  ─────────────────────────────────────────────────────────────────────────────
+  SAP Build Work Zone        The central Fiori Launchpad where all three app
+                             tiles are presented to users with single sign-on
+  SAP BTP Cloud Foundry      Hosting environment for custom SAPUI5 apps and
+                             the SAP Approuter
+  SAP Integration Suite      All iFlow-based integration between S/4HANA,
+                             BTP services, and external data providers
+  SAP Event Mesh             Asynchronous event publishing and consumption
+  SAP Analytics Cloud        Embedded analytics stories (position dashboard,
+                             P&L evolution chart, cargo performance reports)
+  SAP Build Process Autom.   Approval workflows for Trade Finance and cargo
+                             closure events
+  SAP Document Management    Storage and retrieval of regulatory documents,
+                             LC drafts, insurance certificates, BL copies
+  SAP Cloud Identity Svc.    Centralised identity and SSO across all components
+  ─────────────────────────────────────────────────────────────────────────────
+
+9.2   Custom Fiori Applications
+─────────────────────────────────
+Three custom SAPUI5 Fiori applications are developed and deployed on BTP Cloud
+Foundry. Each application is built with the SAPUI5 framework (version 1.120+,
+Horizon theme) and follows SAP Fiori design guidelines.
+
+  Application 1 — Trade Card Application
+    The primary application for the Trading Desk. Provides a list view of
+    all Trade Cards with filtering by status, product type, and date range.
+    The detail view displays all Trade Card fields, the operational event log,
+    volume capture summary, trigger history (for floating-price cargoes), and
+    navigation tiles to launch the Trade Finance and Trade Operations applications
+    in the context of the current Trade Card. All approval actions available
+    to the current user based on their business role are surfaced in the
+    page header action bar.
+
+  Application 2 — Trade Finance Application
+    Accessed from the Trade Card navigation tile or directly from the Work Zone.
+    When launched from the Trade Card context, the PM/YYYY/NNN identifier is
+    passed as a URL parameter and the corresponding TRM transaction is loaded
+    automatically. Displays all Trade Finance-specific data with tabs for:
+    Regulatory Prerequisites, Payment Instrument Details, Document Management,
+    Trigger History (for floating-price), Provisional P&L View, and Approval.
+
+  Application 3 — Trade Operations Application
+    Accessed from the Trade Card navigation tile or directly from the Work Zone.
+    When launched from the Trade Card context, the identifier is passed and
+    the corresponding Freight Order data is loaded. Displays all operational
+    data with tabs for: Vessel and Service Provider Information, Regulatory
+    Notifications, Operational Event Log, Multi-Point Volume Capture, Position
+    Dashboard (embedded SAC story), and Cargo Costing and Closure.
+
+9.3   Connectivity from BTP to S/4HANA
+─────────────────────────────────────────
+All OData calls from the BTP-hosted Fiori applications to S/4HANA pass through:
+
+  —  SAP Cloud Connector: Installed in the Ardova network, establishing a
+     secure encrypted tunnel between the BTP subaccount and the S/4HANA system
+  —  BTP Destination Service: Configured with the S/4HANA system details and
+     Principal Propagation authentication, ensuring that the user's identity
+     is passed through from the BTP app to S/4HANA seamlessly (no separate login)
+  —  SAP Approuter: Handles authentication at the BTP entry point, manages
+     CSRF tokens, and routes API calls to the appropriate backend destination
+
+This is precisely the connectivity architecture demonstrated and validated in
+the Product Catalog Manager project that preceded this engagement.
+
+
+
+
+================================================================================
+10.0  AUTHORIZATION AND ACCESS CONTROL
+================================================================================
+
+10.1  Business Roles in S/4HANA Public Cloud
+──────────────────────────────────────────────
+In S/4HANA Public Cloud, user authorisation is managed through Business Roles,
+which are assigned to users via the Maintain Business Users application. There
+is no ABAP-level authorisation object maintenance in the Public Cloud edition —
+the role concept is managed entirely through Fiori-based administration tools.
+
+Business roles bundle one or more Business Catalogs. Each Business Catalog
+represents a set of related Fiori applications and their associated data access
+permissions. For the Ardova Trade and Supply solution, the following roles
+are defined:
+
+  Business Role Name         Description                   Primary Applications
+  ─────────────────────────────────────────────────────────────────────────────
+  BR_ARDOVA_TRADING_DESK     Trading Desk Officer          Trade Card App (edit)
+  BR_ARDOVA_TRADING_APPR     Trading Desk Approver         Trade Card App (approve)
+  BR_ARDOVA_TRADE_FINANCE    Trade Finance Officer         Finance App (edit)
+  BR_ARDOVA_FINANCE_APPR     Trade Finance Approver        Finance App (approve)
+  BR_ARDOVA_TRADE_OPS        Trade Operations Officer      Ops App (edit)
+  BR_ARDOVA_OPS_APPR         Operations Approver           Ops App (approve/close)
+  BR_ARDOVA_SALES            Sales Team                    Position entry only
+  BR_ARDOVA_MANAGEMENT       Management (Read-Only)        All apps, view only
+  ─────────────────────────────────────────────────────────────────────────────
+
+10.2  Segregation of Duties
+─────────────────────────────
+A fundamental control principle enforced throughout the system is that no
+single user can both create a record and approve it. This is implemented
+through the separation of the Officer and Approver roles, and enforced in the
+Custom Logic of the Trade Card CBO and in the SAP Build Process Automation
+workflows. The system will reject an approval action submitted by the same
+user who created or last modified the record being approved.
+
+10.3  Identity Management
+───────────────────────────
+All user identities are managed centrally through SAP Cloud Identity Services.
+This provides a single identity store for both the S/4HANA system and all
+BTP-hosted applications. Users authenticate once at the Work Zone entry point
+and are recognised across all applications without re-authentication. Business
+roles assigned in S/4HANA are reflected in the BTP applications through
+Principal Propagation.
+
+
+
+
+================================================================================
+11.0  WORKFLOW AND APPROVAL DESIGN
+================================================================================
+
+All approval workflows in this solution are implemented using SAP Build Process
+Automation on BTP. This is the correct workflow mechanism for S/4HANA Public
+Cloud, where the classical SAP workflow engine is not the appropriate tool.
+
+Three workflows are defined:
+
+  WORKFLOW 1 — Trade Card Trading Approval
+    Trigger    : Trade Card status set to "Pending Trading Approval"
+    Task       : Routes to the designated Trading Desk Approver
+    Inbox      : Available in the My Inbox application in SAP Build Work Zone
+    Actions    : Approve (status → Active) / Reject (status → Draft for revision)
+    Escalation : If not actioned within 24 hours, automatic reminder notification
+
+  WORKFLOW 2 — Trade Finance Approval
+    Trigger    : All required Finance documentation confirmed as complete
+    Task       : Routes to the designated Trade Finance Approver
+    Checklist  : Workflow task displays a summary of regulatory permits,
+                 instrument details, and document references for review
+    Actions    : Approve (Trade Card Finance Status → Finance Approved) /
+                 Reject with mandatory rejection note (status → Finance In Progress)
+    Effect     : On approval, Operations team receives notification that
+                 Finance clearance is confirmed for their cargo
+
+  WORKFLOW 3 — Cargo Closure Approval
+    Trigger    : Trade Operations officer requests cargo closure
+    Pre-check  : System validates that all volume capture points are recorded,
+                 all regulatory notifications are acknowledged, and all
+                 operational invoices are entered before allowing the closure
+                 request to proceed
+    Task       : Routes to Trade Operations Approver and Finance Approver
+                 (parallel approval required)
+    Actions    : Both approvers must confirm; on dual approval, the cargo is
+                 closed, the final cost is posted to FI/CO, and the Trade Card
+                 status is set to "Closed"
+
+
+
+
+================================================================================
+12.0  EDGE CASES AND RESILIENCE DESIGN
+================================================================================
+
+Several business scenarios require specific handling that goes beyond the
+standard happy-path flow. These are addressed in the system design as follows:
+
+  OPEN MARKET CARGO — PRICING PERIOD EXPIRY WITH UNTRIGGERED VOLUME
+    When the pricing period end date is approached with volume still unpriced,
+    the system sends an alert notification to the Trading Desk five days before
+    the period closes. On the period end date, the system presents two options:
+    execute a final trigger for all remaining open quantity at the current
+    benchmark price, or execute a roll-over which extends the pricing period
+    by one month at the supplier's roll-over cost. If neither action is taken
+    by the end of the period, the Trade Card is flagged for manual intervention.
+
+  BILL OF LADING TO SHORE VARIANCE ABOVE THRESHOLD
+    If the computed variance between BL Quantity and Shore Quantity exceeds
+    0.5 percent, the system blocks the cargo closure action and raises an
+    approval task for the Trade Operations Approver. The approver must
+    document the reason for the variance before the block is lifted.
+    Variances between 0.2 and 0.5 percent generate a warning notification
+    but do not block closure.
+
+  VESSEL ARRIVAL OUTSIDE LAYCAN
+    If the NOR Tendered date falls outside the configured Laycan window, the
+    system flags the event in the operational log with an "Outside Laycan"
+    indicator. The demurrage calculation is adjusted in accordance with the
+    relevant contract clause. An alert is sent to the Trading Desk for supplier
+    negotiation. The operational officer is required to enter an explanation
+    note before the outside-laycan NOR record can be saved.
+
+  LC AMENDMENT AFTER ISSUANCE
+    If contract terms change after an LC has been issued, the Trade Finance
+    officer creates a new TRM transaction of type LC110 (LC Amendment) linked
+    to the original LC transaction. The amendment is documented and subject to
+    the same Finance Approval workflow as the original issuance.
+
+  SHORT TRADING POSITION DURING AN ACTIVE TRADING DAY
+    When the Sales team records sale volumes that push the net position into
+    negative territory (short), the position dashboard immediately reflects
+    the short condition and triggers an alert notification to the Trading Desk.
+    The system does not prevent the sale from being recorded — the decision
+    to allow a short position is a commercial judgement — but it ensures the
+    Trading Desk is aware of the exposure without delay.
+
+  CARGO QUALITY REJECTION AT DISCHARGE
+    If the Trade Operations officer records a quality failure at the discharge
+    port, the cargo closure action is blocked and the Trade Card is placed in
+    a "Quality Dispute" status. An escalation notification is sent to the
+    Trading Desk and Trade Finance teams for supplier claim management.
+    The system preserves all volume and documentation records in their current
+    state pending resolution.
+
+
+
+
+================================================================================
+13.0  NON-FUNCTIONAL REQUIREMENTS
+================================================================================
+
+  Requirement Category    Specification
+  ─────────────────────────────────────────────────────────────────────────────
+  Performance             Trade Card list page load: under 2 seconds (95th
+                          percentile). Trigger execution and position refresh:
+                          under 3 seconds. Position dashboard refresh: under
+                          5 seconds on SAC embedded view.
+
+  Availability            S/4HANA Public Cloud: governed by SAP's standard
+                          cloud SLA (99.9% monthly uptime). BTP-hosted apps:
+                          99.5% monthly availability target.
+
+  Scalability             The Trade Card CBO must support a minimum of 500
+                          concurrent active records without performance
+                          degradation. The position engine must accommodate
+                          at least 300 trigger events per trading day.
+
+  Security                All communication between BTP and S/4HANA is
+                          encrypted in transit (TLS 1.3). No credentials are
+                          stored in application code or configuration files.
+                          All authentication uses SAP Cloud Identity Services.
+
+  Audit Completeness      One hundred percent of status changes on the Trade
+                          Card CBO are recorded in the audit log with timestamp
+                          and user identity. Audit records are immutable after
+                          creation. Confirmed trigger records cannot be modified.
+
+  Data Retention          Trade Card records and all associated sub-node data
+                          are retained for a minimum of seven years in
+                          accordance with Nigerian financial regulatory
+                          requirements. Archive strategy to be defined in the
+                          operational runbook.
+
+  Mobile Responsiveness   All three custom Fiori applications must be fully
+                          functional on tablet devices. Critical data entry
+                          actions must work on a mobile browser.
+  ─────────────────────────────────────────────────────────────────────────────
+
+
+
+
+================================================================================
+14.0  GLOSSARY
+================================================================================
+
+  Term                       Definition as Used in This Document
+  ─────────────────────────────────────────────────────────────────────────────
+  CBO                        Custom Business Object — a net-new business object
+                             created using the Custom Business Objects Fiori
+                             application in S/4HANA Public Cloud
+  Clean Core                 SAP's principle of keeping the core S/4HANA system
+                             unmodified, with all extensions implemented through
+                             designated extensibility channels
+  Key User Extensibility     The set of tools in S/4HANA Public Cloud that
+                             allow authorised business users to add fields,
+                             logic, and analytical queries to existing standard
+                             objects without ABAP development
+  Trade Card                 The CBO that serves as the master record for each
+                             cargo transaction, assigned a unique ID in the
+                             format PM/YYYY/NNN
+  TRM                        Treasury and Risk Management — the S/4HANA module
+                             used for Trade Finance activities
+  TM                         Transportation Management — the S/4HANA module
+                             used for Trade Operations activities
+  iFlow                      Integration Flow — a data processing pipeline
+                             configured in SAP Integration Suite (BTP)
+  Event Mesh                 SAP BTP's messaging service for asynchronous event
+                             publishing between systems
+  SAC                        SAP Analytics Cloud — used for the embedded
+                             position and P&L analytical views
+  BTP                        SAP Business Technology Platform
+  SAP Build Work Zone        The BTP-hosted central Fiori Launchpad that
+                             aggregates all applications for Ardova users
+  SAP Build Process Autom.   SAP's workflow and robotic process automation
+                             tool on BTP (replaces classical SAP workflow)
+  Principal Propagation      SSO mechanism that passes the user's identity
+                             from BTP through to S/4HANA transparently
+  Cloud Connector            SAP software component installed on the client
+                             network to create a secure tunnel from BTP to
+                             on-network systems such as S/4HANA
+  Trigger                    The formal act of pricing a defined volume tranche
+                             of a floating-price cargo at the prevailing
+                             benchmark rate at that moment in time
+  Long Position              A trading position where purchased volume exceeds
+                             sold volume — net unsold inventory exposure
+  Short Position             A trading position where sold commitments exceed
+                             purchased volume — net supply risk exposure
+  Form M                     A CBN-mandated exchange control document required
+                             for every petroleum product import into Nigeria
+  Laycan                     The agreed date window within which the vessel
+                             must arrive at the load port ready to load
+  BL Quantity                The volume of cargo certified by the Port Surveyor
+                             and recorded on the Bill of Lading at load port
+  Shore Quantity             The volume received into depot shore tanks at the
+                             receiving terminal
+  ─────────────────────────────────────────────────────────────────────────────
+
+
+
+
+================================================================================
+
+        This document is the property of WYZE Solutions and is prepared
+        exclusively for the use of Ardova Energy Plc in connection with the
+        Trade and Supply Management System implementation project. It may
+        not be reproduced, distributed, or disclosed to any third party
+        without the prior written consent of WYZE Solutions.
+
+        WYZE Consulting Services Limited  |  (c) 2026  |  All Rights Reserved
+
+================================================================================

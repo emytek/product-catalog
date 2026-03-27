@@ -9,7 +9,11 @@
 #   2. product-catalog-approuter — SAP Approuter (serves UI + routes API calls)
 #
 # Resources (services):
-#   product-catalog-mssql        — User-provided service: MS SQL Server credentials
+#   product-catalog-hana         — SAP HANA Cloud service instance (active)
+#
+# DATABASE:
+#   Active   → SAP HANA Cloud   (product-catalog-hana, hana service)
+#   Archived → Azure SQL Server (product-catalog-mssql, user-provided — see below)
 #
 # NOTE: Redis is optional. Add product-catalog-redis resource and bind it to
 #       the API module only when you have a Redis endpoint available.
@@ -18,7 +22,7 @@
 _schema-version: "3.1"
 ID: product-catalog-manager
 version: 1.0.0
-description: "SAP Fiori Product Catalog Manager — Full-Stack on BTP"
+description: "SAP Fiori Product Catalog Manager — Full-Stack on BTP with SAP HANA (schema plan)"
 
 parameters:
   enable-parallel-deployments: true
@@ -47,21 +51,19 @@ modules:
         - logs/
         - "*.log"
         - .git/
+        - db/
     properties:
       NODE_ENV: production
-      # CORS_ORIGIN is the approuter URL — resolved automatically after first deploy
-      CORS_ORIGIN: ~{product-catalog-approuter/url}
     requires:
-      - name: product-catalog-mssql
-        parameters:
-          config:
-            DB_HOST:      "~{credentials/host}"
-            DB_PORT:      "~{credentials/port}"
-            DB_NAME:      "~{credentials/database}"
-            DB_USER:      "~{credentials/user}"
-            DB_PASSWORD:  "~{credentials/password}"
-            DB_ENCRYPT:   "true"
-            DB_TRUST_CERT: "false"
+      # ── SAP HANA Cloud service binding (active) ─────────────────────────────
+      # CF injects the HANA credentials into VCAP_SERVICES["hana"][0].credentials.
+      # environment.js reads: host, port, user, password, schema.
+      - name: product-catalog-hana
+      # ── SQL SERVER REFERENCE ─────────────────────────────────────────────────
+      # Original binding for Azure SQL Server (user-provided service).
+      # Restore by replacing the hana binding above with:
+      #   - name: product-catalog-mssql
+      # ────────────────────────────────────────────────────────────────────────
     provides:
       - name: product-catalog-api-url
         properties:
@@ -90,21 +92,48 @@ modules:
           forwardAuthToken: false
     properties:
       SEND_XFRAMEOPTIONS: false
-    provides:
-      - name: product-catalog-approuter
-        properties:
-          url: ${default-url}
 
 # =============================================================================
 # RESOURCES (CF Services)
 # =============================================================================
 resources:
 
-  # MS SQL Server — user-provided service (must point to a cloud-accessible DB)
-  # Create BEFORE deploying:
+  # ── SAP HANA (schema plan — shared HANA system on BTP) ───────────────────────
+  # Uses the "schema" plan which creates a dedicated schema + user on the
+  # SAP-managed shared HANA database in your BTP account.  This is the correct
+  # plan when the marketplace shows: hdi-shared | sbss | schema | securestore
+  # (i.e. no standalone hana-free plan is available).
   #
+  # Create BEFORE deploying (one-time setup):
+  #   cf create-service hana schema product-catalog-hana
+  #
+  # After creation, get credentials for running schema scripts:
+  #   cf create-service-key product-catalog-hana devkey
+  #   cf service-key product-catalog-hana devkey
+  #
+  # THEN run the schema scripts using the credentials above — see guide:
+  #   Doc/HANA_Migration_Guide.txt  (Phase 1 and Phase 2)
+  #   Scripts: backend/db/hana/001_schema.sql
+  #            backend/db/hana/002_seed_data.sql
+  #
+  # VCAP_SERVICES shape after binding (CF injects this automatically):
+  #   services["hana"][0].credentials: { host, port, user, password, schema, certificate }
+  #
+  - name: product-catalog-hana
+    type: hana
+    parameters:
+      service: hana
+      service-plan: schema
+
+  # ── SQL SERVER REFERENCE ───────────────────────────────────────────────────
+  # Original Azure SQL Server resource — user-provided service.
+  # Restore by un-commenting this block and binding it in the API module.
+  #
+  # Create with:
   #   cf create-user-provided-service product-catalog-mssql \
-  #     -p '{"host":"your-server.database.windows.net","port":"1433","database":"ProductCatalogDB","user":"your-user","password":"YourPassword"}'
+  #     -p '{"host":"your-server.database.windows.net","port":"1433",
+  #           "database":"ProductCatalogDB","user":"your-user","password":"YourPassword"}'
   #
-  - name: product-catalog-mssql
-    type: org.cloudfoundry.user-provided-service
+  # - name: product-catalog-mssql
+  #   type: org.cloudfoundry.user-provided-service
+  # ────────────────────────────────────────────────────────────────────────────
