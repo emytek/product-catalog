@@ -76,10 +76,10 @@ app.use(morgan(morganFormat, {
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: false, limit: "1mb" }));
 
-// ── Trust proxy (required for rate-limit source IP in CF / behind nginx) ──────
-if (config.app.isProduction) {
-    app.set("trust proxy", 1);
-}
+// ── Trust proxy (required for rate-limit source IP in CF / BAS / behind nginx) ─
+// Applied in all environments because BAS development also runs behind a
+// reverse proxy and sends X-Forwarded-For headers.
+app.set("trust proxy", 1);
 
 // ── Global rate limiter ───────────────────────────────────────────────────────
 app.use(generalLimiter);

@@ -1,0 +1,1294 @@
+================================================================================
+  ARDOVA TRADE & SUPPLY MANAGEMENT SYSTEM
+  CONSULTANT MODULE CONFIGURATION GUIDE
+  SAP S/4HANA Standard Module Implementation
+  Version 1.0 | March 2026
+================================================================================
+
+  Prepared for: Ardova Plc — Trade & Supply Division
+  Implementation Approach: SAP Standard Modules + BTP Extensions
+  Modules Covered: SAP TRM/FSCM (Trade Finance) | SAP TM (Trade Operations)
+  Deployment Target: SAP S/4HANA Public Cloud + SAP BTP
+
+================================================================================
+TABLE OF CONTENTS
+================================================================================
+
+  PART A — OVERVIEW AND APPROACH
+    1.  Implementation Philosophy
+    2.  Architecture Overview (Hybrid Approach)
+    3.  Prerequisites Checklist
+
+  PART B — TRADE FINANCE: SAP TRM/FSCM CONFIGURATION
+    4.  Enabling FSCM Trade Finance in S/4HANA Public Cloud
+    5.  Communication Arrangements for Trade Finance APIs
+    6.  Letter of Credit (LC) Configuration
+    7.  Bank Guarantee (BG) Configuration
+    8.  Bills for Collection Configuration
+    9.  Linking TRM Records to Trade Card ID (Custom Field)
+    10. Form M — BTP Side Extension (Nigeria Regulatory Requirement)
+
+  PART C — TRADE OPERATIONS: SAP TM CONFIGURATION
+    11. Transportation Management Activation in S/4HANA Public Cloud
+    12. Freight Order Types — Vessel/Tanker Configuration
+    13. Petroleum Cargo Transport Profile Setup
+    14. Volume Determination and Reconciliation Setup
+    15. Custom Field: Trade Card ID on Freight Order
+    16. Load Port and Destination Port Configuration
+
+  PART D — GATE PATTERN INTEGRATION
+    17. Workflow: Trade Card Approval → TRM Activation
+    18. Workflow: TRM Completion → TM Activation
+    19. SAP Build Process Automation — Trigger Configuration
+    20. Status Visibility Across Modules
+
+  PART E — BTP EXTENSIONS FOR GAPS
+    21. Form M Custom BTP App (Required — Not in Standard SAP)
+    22. Open Market Trigger Pricing Logic (BTP CAP Extension)
+    23. Trade Card Fiori App (Remains Custom — No Standard Equivalent)
+    24. Position Dashboard (Optional BTP Analytics Layer)
+
+  PART F — TESTING AND GO-LIVE
+    25. Integration Test Scenarios
+    26. UAT Checklist
+    27. Go-Live Sequence
+
+================================================================================
+PART A — OVERVIEW AND APPROACH
+================================================================================
+
+------------------------------------------------------------------------
+SECTION 1: IMPLEMENTATION PHILOSOPHY
+------------------------------------------------------------------------
+
+The guiding principle for the Ardova Trade & Supply implementation is:
+
+  USE STANDARD BEFORE CUSTOM.
+
+SAP S/4HANA ships with mature, auditable, integration-ready modules for
+exactly the business processes Ardova operates — petroleum trade finance
+and cargo logistics. Building these from scratch in BTP CAP/SAPUI5 would
+duplicate effort, create unsupported maintenance overhead, and miss years
+of embedded SAP best practice.
+
+The recommended philosophy breaks down as follows:
+
+  Standard SAP Module  →  handles core transactional processing
+  SAP BTP Extension    →  handles only genuine gaps (Form M, pricing logic)
+  Custom Fiori App     →  reserved for the Trade Card orchestration layer
+
+1.1 WHY THIS APPROACH MATTERS FOR ARDOVA
+
+  Ardova operates high-value petroleum trades (LPG, AGO, ATK, BIT) with
+  exposure to:
+    - Letter of Credit risk across multiple Nigerian banks
+    - Cargo tracking from load port (STS or jetty) to destination terminal
+    - CBN/NUPRC regulatory compliance (Form M, NESS levy, import permits)
+    - Currency volatility (USD invoice, NGN settlement)
+
+  These are not niche scenarios. SAP TRM/FSCM and SAP TM were built for
+  precisely this risk and logistics profile. Use them.
+
+1.2 BUILD vs CONFIGURE DECISION TABLE
+
+  Capability                     | SAP Standard | BTP Custom | Decision
+  -------------------------------|--------------|------------|----------
+  Letter of Credit tracking      | TRM/FSCM     | -          | Standard
+  Bank Guarantee management      | TRM/FSCM     | -          | Standard
+  Bills for Collection           | TRM/FSCM     | -          | Standard
+  Freight Order / vessel booking | TM           | -          | Standard
+  Port/berth assignment          | TM           | -          | Standard
+  Volume reconciliation          | TM           | -          | Standard
+  Form M (CBN regulatory doc)    | NOT IN SAP   | CAP App    | Custom BTP
+  Open Market pricing trigger    | Partial       | CAP logic  | Extend
+  Trade Card (deal orchestration)| NOT IN SAP   | CAP App    | Custom BTP
+  Approval workflows             | SPA          | -          | SPA
+
+
+------------------------------------------------------------------------
+SECTION 2: ARCHITECTURE OVERVIEW (HYBRID APPROACH)
+------------------------------------------------------------------------
+
+2.1 SYSTEM LANDSCAPE
+
+  +-------------------+        +---------------------------+
+  |   SAP BTP         |        |   SAP S/4HANA Public Cloud|
+  |                   |        |                           |
+  |  Trade Card App   |<------>|  FSCM / TRM               |
+  |  Form M App       |        |  (Trade Finance)          |
+  |  Position Dash.   |        |                           |
+  |  CAP Backend      |<------>|  Transportation Mgmt (TM) |
+  |  SAP Build PA     |        |  (Trade Operations)       |
+  |  HANA Cloud DB    |        |                           |
+  |                   |        |  SAP Master Data           |
+  +-------------------+        |  (BP, Material, Plant)    |
+                                +---------------------------+
+             |                              |
+             +----------+   +--------------+
+                        |   |
+                 +------v---v-------+
+                 |  Integration     |
+                 |  Suite (IS)      |
+                 |  iFlows          |
+                 +------------------+
+
+2.2 DATA FLOW SUMMARY
+
+  Step 1: Trader creates Trade Card in BTP Custom App
+  Step 2: Trade Card Approval triggers (via SPA) TRM financial instrument
+  Step 3: TRM instrument (LC/BG) is created and managed in S/4HANA FSCM
+  Step 4: TRM completion triggers TM Freight Order creation
+  Step 5: Cargo is tracked in TM through load port to destination
+  Step 6: Volume reconciliation closes out the TM transaction
+  Step 7: Settlement returns to FI/CO in S/4HANA
+
+2.3 ARDOVA-SPECIFIC MODULE MAPPING
+
+  Business Process          | SAP Module  | Key Object
+  --------------------------|-------------|----------------------------
+  Trade deal initiation     | BTP Custom  | Trade Card (CBO)
+  LC/BG issuance request    | TRM/FSCM    | Financial Transaction
+  Form M filing (CBN)       | BTP Custom  | Form M Record
+  Vessel/cargo booking      | TM          | Freight Order
+  Port arrival/departure    | TM          | Transport Event
+  Volume metering           | TM          | Quantity Determination
+  Invoice & settlement      | FI/MM       | Invoice Verification
+
+
+------------------------------------------------------------------------
+SECTION 3: PREREQUISITES CHECKLIST
+------------------------------------------------------------------------
+
+Complete all items before starting module configuration.
+
+3.1 LICENSING & ENTITLEMENTS
+
+  [ ] Confirm SAP S/4HANA Public Cloud edition includes TRM/FSCM
+      NOTE: Treasury & Risk Management requires specific licensing.
+      Verify with SAP account executive before configuration begins.
+  [ ] Confirm SAP Transportation Management is activated in tenant
+      (In Public Cloud, TM is embedded — verify scope item activation)
+  [ ] BTP subaccount has entitlements for:
+        - SAP HANA Cloud (hana plan)
+        - SAP Build Process Automation
+        - Cloud Foundry runtime
+        - Integration Suite (if iFlows required)
+
+3.2 SYSTEM ACCESS
+
+  [ ] Admin access to S/4HANA Customizing (Implementation Guide / SPRO)
+      NOTE: In Public Cloud, customizing is done via Manage Your Solution
+      app, not SPRO. Scope item configuration uses guided activities.
+  [ ] SAP BTP subaccount admin role
+  [ ] Communication management access in S/4HANA (for API arrangements)
+
+3.3 MASTER DATA READINESS
+
+  [ ] Business Partners created for:
+        - All Ardova counterparty trading companies
+        - Nigerian banks issuing LCs and BGs (Zenith, GTB, UBA, Access, etc.)
+        - Vessel operators and shipping agents
+        - Load port operators (Atlas Cove, Apapa Jetty, etc.)
+  [ ] Materials created for all petroleum products:
+        - LPG (Liquefied Petroleum Gas)
+        - AGO (Automotive Gas Oil / Diesel)
+        - ATK (Aviation Turbine Kerosene)
+        - BIT (Bitumen)
+  [ ] Plants defined for Ardova storage locations / terminals
+  [ ] Chart of Accounts aligned with Ardova finance team for TRM postings
+
+3.4 INTEGRATION PREREQUISITES
+
+  [ ] SAP Integration Suite tenant provisioned (if using iFlows)
+  [ ] BTP destination configured for S/4HANA system connectivity
+  [ ] OAuth2 client credentials configured for API communication
+
+
+================================================================================
+PART B — TRADE FINANCE: SAP TRM/FSCM CONFIGURATION
+================================================================================
+
+------------------------------------------------------------------------
+SECTION 4: ENABLING FSCM TRADE FINANCE IN S/4HANA PUBLIC CLOUD
+------------------------------------------------------------------------
+
+In SAP S/4HANA Public Cloud, FSCM (Financial Supply Chain Management)
+capabilities including Trade Finance are activated via Scope Items, not
+traditional SPRO configuration.
+
+4.1 SCOPE ITEM ACTIVATION
+
+  Relevant Scope Items for Ardova:
+    - BKX: Bank Communication Management
+    - CAS: Credit Limit Management (if needed for counterparty limits)
+    - BJB: Treasury and Risk Management — Financial Transactions
+
+  Steps to activate:
+  1. Navigate to SAP Fiori app: "Manage Your Solution"
+     (Role: Configuration Expert — Business Process Configuration)
+  2. Select "Configure Your Solution" tab
+  3. Search for scope item "BJB" (Treasury — Financial Transactions)
+  4. Click "Activate" and confirm system prerequisites
+  5. Wait for activation to complete (may take 15–30 minutes)
+  6. Refresh and verify scope item shows status "Active"
+
+4.2 TRADE FINANCE PRODUCT TYPES
+
+  Once TRM is active, verify the following product types are available:
+  Navigate to: Manage Your Solution → Financial Products Configuration
+
+  Required Product Types:
+    51 — Letter of Credit (Import LC)
+    52 — Letter of Credit (Export LC)
+    55 — Bank Guarantee
+    56 — Bills for Collection
+
+  COMMON MISTAKE: In Public Cloud, you cannot freely add custom product
+  types as you would in On-Premise (via TM01). Use standard types and
+  extend with custom fields if needed.
+
+4.3 ON-PREMISE DIFFERENCE
+
+  On-Premise Path: SPRO → Financial Supply Chain Management →
+    Treasury and Risk Management → Transaction Manager →
+    General Settings → Define Product Types
+
+
+------------------------------------------------------------------------
+SECTION 5: COMMUNICATION ARRANGEMENTS FOR TRADE FINANCE APIs
+------------------------------------------------------------------------
+
+To allow BTP apps and external systems to interact with TRM data, set
+up Communication Arrangements in S/4HANA.
+
+5.1 SAP_COM_0118 — Treasury Communication Arrangement
+
+  This arrangement exposes Treasury transaction APIs for reading and
+  writing financial transactions (LCs, BGs, etc.).
+
+  Steps:
+  1. Navigate to Fiori app: "Communication Arrangements"
+     (Role: IT Administrator)
+  2. Click "New"
+  3. In "Communication Scenario" field, enter: SAP_COM_0118
+  4. Enter Arrangement Name: ARDOVA_TREASURY_INT
+  5. Under "Communication System", select or create the BTP system entry
+     (This should point to your BTP subaccount / Integration Suite)
+  6. Under "Inbound Communication", note the generated service URL
+     (format: https://<tenant>.s4hana.cloud.sap/sap/opu/odata/sap/...)
+  7. Set Authentication Method: OAuth 2.0
+  8. Copy the Client ID and generate a Client Secret
+  9. Store credentials securely in BTP Destination Service
+
+  APIs exposed by SAP_COM_0118 include:
+    - Financial Transaction API (read/write LC, BG, Bills records)
+    - Treasury Position API
+
+5.2 SAP_COM_0106 — Cash Management / Bank Communication
+
+  Required if Ardova wants payment instruction triggers to banks from
+  within the trade finance workflow.
+
+  Steps:
+  1. Repeat process above with Scenario: SAP_COM_0106
+  2. Arrangement Name: ARDOVA_BANK_COMM_INT
+  3. Configure with the bank connectivity middleware (SWIFT / bank API
+     integration handled separately via Integration Suite)
+
+  NOTE: Full SWIFT integration is out of scope for Phase 1. Configure
+  the arrangement now but leave bank endpoint as placeholder.
+
+5.3 TESTING THE API ARRANGEMENT
+
+  1. Use Postman or the BTP API Business Hub test console
+  2. Request OAuth token from S/4HANA token endpoint
+  3. Execute GET request to Financial Transaction API endpoint
+  4. Verify 200 OK response and sample transaction data in response body
+
+
+------------------------------------------------------------------------
+SECTION 6: LETTER OF CREDIT (LC) CONFIGURATION
+------------------------------------------------------------------------
+
+6.1 LC PRODUCT TYPE SETTINGS
+
+  In S/4HANA Public Cloud, via "Configure Your Solution":
+  1. Navigate to: Financial Products → Letter of Credit settings
+  2. Set Default LC Type: IMPORT_LC (for Ardova import petroleum trades)
+  3. Configure Tolerance Levels:
+       Positive Tolerance: 5% (standard petroleum trade tolerance)
+       Negative Tolerance: 0%
+  4. Enable Document Checklist feature (tracks required shipping docs)
+  5. Set default currency: USD (all Ardova petroleum trades are USD-denominated)
+
+6.2 CREATING AN IMPORT LC TRANSACTION (OPERATIONAL STEPS)
+
+  Fiori App: "Manage Financial Transactions"
+  (Available after TRM scope item activation)
+
+  1. Open "Manage Financial Transactions"
+  2. Click "Create" → Select Product Type: 51 (Import Letter of Credit)
+  3. Fill Transaction Header:
+       Company Code: [Ardova company code, e.g., ARDV]
+       Counterparty: [Select issuing bank Business Partner]
+       Transaction Date: [LC issuance date]
+       Value Date: [LC effective date]
+       Maturity Date: [LC expiry date]
+  4. Fill LC-Specific Data:
+       LC Number: [Bank-issued LC number — critical for Form M linkage]
+       LC Amount: [USD amount matching trade card value]
+       Port of Loading: [Load port — e.g., Rotterdam, Houston]
+       Port of Discharge: [Lagos, Apapa, Atlas Cove]
+       Commodity: [Select material — AGO, LPG, ATK, BIT]
+  5. Add Document Checklist items:
+       - Bill of Lading
+       - Certificate of Origin
+       - Inspection Certificate (SGS/Intertek)
+       - Insurance Certificate
+  6. Save → System generates Transaction ID (e.g., TRM-2026-000123)
+
+6.3 ARDOVA-SPECIFIC LC NOTES
+
+  - Most Ardova LCs will be issued by Nigerian banks on behalf of Ardova
+    as the importer. Counterparty in TRM = Nigerian issuing bank.
+  - LC amounts are typically in USD. Ensure USD is configured as a
+    transaction currency in TRM settings.
+  - Partial shipments are common in petroleum — enable "Partial Shipment
+    Allowed" flag in LC transaction.
+  - Transhipment may be relevant for LPG cargoes — configure accordingly.
+
+  COMMON MISTAKE: Entering the counterparty as the overseas seller
+  instead of the issuing bank. In TRM import LC, the bank is the
+  financial counterparty; the seller is a trade reference.
+
+
+------------------------------------------------------------------------
+SECTION 7: BANK GUARANTEE (BG) CONFIGURATION
+------------------------------------------------------------------------
+
+7.1 BG PRODUCT TYPE SETTINGS
+
+  Product Type 55 — Bank Guarantee
+
+  1. Via "Configure Your Solution", navigate to Bank Guarantee settings
+  2. Configure Guarantee Types:
+       PERFORM  — Performance Guarantee
+       ADVANCE  — Advance Payment Guarantee
+       PAYMENT  — Payment Guarantee (most common for Ardova)
+       TENDER   — Bid/Tender Guarantee
+  3. Set default validity period: 180 days (standard for Ardova trade cycle)
+
+7.2 CREATING A BANK GUARANTEE
+
+  Fiori App: "Manage Financial Transactions"
+
+  1. Create → Product Type: 55 (Bank Guarantee)
+  2. Transaction Header:
+       Company Code: ARDV
+       Guarantee Type: PAYMENT
+       Issuing Bank: [Nigerian bank BP — same as LC configuration]
+       Beneficiary: [Overseas seller BP]
+  3. Guarantee Details:
+       Guarantee Amount: [USD amount]
+       Issue Date / Expiry Date
+       Claim Period: [days after expiry within which claim can be made]
+  4. Link to Trade Reference: [Trade Card ID — see Section 9]
+  5. Save and record TRM Transaction ID
+
+7.3 BG LIFECYCLE MANAGEMENT
+
+  Key status transitions to configure:
+    Draft → Issued → Active → Expired / Claimed / Released
+
+  Fiori App: "Monitor Financial Transactions" — use for status tracking
+  Set up workflow notifications (via SPA) for:
+    - BG expiry approaching (30 days warning)
+    - BG claim received
+
+
+------------------------------------------------------------------------
+SECTION 8: BILLS FOR COLLECTION CONFIGURATION
+------------------------------------------------------------------------
+
+8.1 OVERVIEW
+
+  Bills for Collection (BC) are used when Ardova trades under
+  documentary collection terms (D/P or D/A) rather than LC.
+  Less common but applicable for trusted counterparty trades.
+
+  Product Type 56 — Bills for Collection
+
+8.2 DOCUMENT AGAINST PAYMENT (D/P) SETUP
+
+  1. Create Financial Transaction → Product Type 56
+  2. Collection Type: D/P (Documents Against Payment)
+  3. Presenting Bank: [Ardova's remitting bank]
+  4. Collecting Bank: [Overseas correspondent bank]
+  5. Bill Amount: [USD invoice amount]
+  6. Tenor: SIGHT (payment on document presentation)
+  7. Link documents: Bill of Lading, Commercial Invoice, Packing List
+
+8.3 DOCUMENT AGAINST ACCEPTANCE (D/A) SETUP
+
+  Same as above but:
+  - Collection Type: D/A
+  - Tenor: [30/60/90 days from Bill of Lading date]
+  - Acceptance Date: populated when overseas bank accepts the draft
+
+  NOTE: D/A creates a deferred payment obligation. Ensure this is
+  reflected in Ardova's cash flow planning (link to Cash Management).
+
+
+------------------------------------------------------------------------
+SECTION 9: LINKING TRM RECORDS TO TRADE CARD ID (CUSTOM FIELD)
+------------------------------------------------------------------------
+
+The Trade Card ID is Ardova's master deal reference generated in the
+BTP custom Trade Card app. All TRM instruments must carry this ID for
+end-to-end traceability.
+
+9.1 ADDING CUSTOM FIELD TO TRM FINANCIAL TRANSACTION
+
+  In S/4HANA Public Cloud, use "Custom Fields and Logic" app.
+
+  1. Open Fiori app: "Custom Fields and Logic"
+     (Role: Configuration Expert)
+  2. Click "New Field"
+  3. Business Context: "Financial Transaction" (under TRM)
+  4. Field Definition:
+       Field Label: Trade Card ID
+       Technical Name: YY1_TRADE_CARD_ID
+       Data Type: Text (Length 20)
+  5. Enable for:
+       [x] Fiori UI (appears on Manage Financial Transactions screen)
+       [x] OData API (exposed via SAP_COM_0118 for BTP read/write)
+  6. Publish the field
+  7. Assign to relevant screen sections in "Adapt UI" if needed
+
+9.2 POPULATING TRADE CARD ID FROM BTP
+
+  When BTP app (SAP Build Process Automation) triggers TRM creation:
+  1. SPA workflow calls the Financial Transaction API (via SAP_COM_0118)
+  2. Passes YY1_TRADE_CARD_ID in the request payload
+  3. TRM transaction is created with the Trade Card ID populated
+
+  COMMON MISTAKE: Forgetting to publish the custom field to the API.
+  Without the OData publication step, the field exists on screen but
+  cannot be set programmatically.
+
+
+------------------------------------------------------------------------
+SECTION 10: FORM M — BTP SIDE EXTENSION (NIGERIA REGULATORY REQUIREMENT)
+------------------------------------------------------------------------
+
+10.1 WHY FORM M IS NOT IN STANDARD TRM
+
+  Form M is a Central Bank of Nigeria (CBN) mandatory import document.
+  It must be obtained from a Nigerian bank before any goods (including
+  petroleum products) can be imported into Nigeria.
+
+  SAP TRM has no concept of Form M. It is a Nigerian regulatory construct
+  with no equivalent in the SAP standard. This is a genuine gap — build
+  a BTP extension.
+
+10.2 FORM M DATA REQUIREMENTS
+
+  A Form M record must capture:
+    - Form M Number (issued by bank)
+    - Issuing Bank
+    - Product Description (HS Code)
+    - Quantity and Unit of Measure
+    - USD Value
+    - Country of Origin
+    - Port of Discharge (Nigerian port)
+    - Valid From / Valid To Date
+    - Amendment History (Form M can be amended up to 3 times)
+    - Link to LC/BG Transaction ID (from TRM)
+    - Link to Trade Card ID
+
+10.3 BTP CAP DATA MODEL (REFERENCE)
+
+  Entity: FormM {
+    key formMId        : UUID;
+    formMNumber        : String(20);    // CBN-issued number
+    issuingBank        : String(50);
+    tradeCardId        : String(20);    // link to Trade Card
+    trmTransactionId   : String(20);    // link to TRM LC/BG
+    productHSCode      : String(10);
+    quantity           : Decimal(15,3);
+    unit               : String(3);
+    valueUSD           : Decimal(15,2);
+    countryOfOrigin    : String(3);
+    portOfDischarge    : String(50);
+    validFrom          : Date;
+    validTo            : Date;
+    status             : String(20);    // Draft/Submitted/Approved/Expired
+    amendments         : Composition of many FormMAmendment on amendments.formMId = $self.formMId;
+  }
+
+10.4 FORM M FIORI APP FEATURES
+
+  Build a simple Fiori Elements List Report + Object Page app:
+  - List: shows all Form M records, filtered by status and date
+  - Object Page: form entry, amendment tracking, status workflow
+  - Integration: on save, write formMNumber back to TRM custom field
+    YY1_FORM_M_NUMBER via SAP_COM_0118 API call
+
+
+================================================================================
+PART C — TRADE OPERATIONS: SAP TM CONFIGURATION
+================================================================================
+
+------------------------------------------------------------------------
+SECTION 11: TRANSPORTATION MANAGEMENT ACTIVATION IN S/4HANA PUBLIC CLOUD
+------------------------------------------------------------------------
+
+In S/4HANA Public Cloud (2022+), SAP Transportation Management is
+embedded and activated via scope items, not as a separate system.
+
+11.1 RELEVANT SCOPE ITEMS FOR ARDOVA
+
+  - 3FN: Freight Order Management
+  - 3G1: Transportation Planning
+  - 3EM: Carrier Selection and Tendering
+  - BDQ: Dangerous Goods Management (required for petroleum products)
+
+  NOTE: BDQ (Dangerous Goods) is critical for LPG especially. Do not
+  skip this scope item. LPG classification and handling requirements
+  must be encoded in material master.
+
+11.2 ACTIVATION STEPS
+
+  1. Open "Manage Your Solution" app
+  2. Navigate to scope items — search "3FN"
+  3. Activate Freight Order Management
+  4. Repeat for BDQ (Dangerous Goods)
+  5. Verify activation: Open "Manage Freight Orders" app
+     If app loads without error, TM is active.
+
+11.3 KEY FIORI APPS FOR TM OPERATIONS
+
+  App Name                        | Purpose
+  --------------------------------|--------------------------------------
+  Manage Freight Orders           | Create/edit/track freight orders
+  Monitor Freight Orders          | Read-only visibility dashboard
+  Manage Transportation Networks  | Define ports, lanes, routes
+  Manage Carrier Profiles         | Register vessel operators/agents
+  Manage Business Partners (TM)   | BP roles for TM-specific data
+  Track Freight Orders            | Real-time cargo tracking view
+
+
+------------------------------------------------------------------------
+SECTION 12: FREIGHT ORDER TYPES — VESSEL/TANKER CONFIGURATION
+------------------------------------------------------------------------
+
+12.1 OVERVIEW OF FREIGHT ORDER TYPES
+
+  Freight Order Types define the behaviour of a freight order — its
+  lifecycle, numbering, and integration with other modules.
+
+  For Ardova, create at minimum:
+    - PTANK: Petroleum Tanker — for AGO, ATK, BIT sea freight
+    - PLPG : LPG Tanker — separate type due to dangerous goods rules
+    - COAST: Coastal Barge — for domestic Nigerian distribution
+
+12.2 CONFIGURING FREIGHT ORDER TYPES (PUBLIC CLOUD)
+
+  Path: Manage Your Solution → Configure Your Solution →
+        Transportation Management → Freight Order Types
+
+  For PTANK (Petroleum Tanker):
+  1. Click "Add"
+  2. Type Code: PTANK
+  3. Description: Petroleum Tanker Freight Order
+  4. Transportation Mode: Sea (01)
+  5. Means of Transport: Tanker Vessel (configure in next section)
+  6. Numbering Range: TM01 (define via "Manage Number Ranges" app)
+  7. Dangerous Goods Relevant: YES (for petroleum)
+  8. Execution Type: Carrier-Executed (shipping agent manages vessel)
+  9. Enable Volume-Based Quantity (critical for petroleum measurement)
+  10. Save
+
+  For PLPG (LPG Tanker):
+  1. Copy from PTANK
+  2. Type Code: PLPG
+  3. Enable LPG-specific dangerous goods class (Class 2.1 — Flammable Gas)
+  4. Set default temperature control: Refrigerated Cargo flag
+  5. Save
+
+  ON-PREMISE DIFFERENCE: On-Premise uses transaction /SCMTMS/TRTYP or
+  SPRO → Transportation Management → Basic Functions →
+  Freight Order Management → Define Freight Order Types
+
+
+------------------------------------------------------------------------
+SECTION 13: PETROLEUM CARGO TRANSPORT PROFILE SETUP
+------------------------------------------------------------------------
+
+A Transport Profile groups the measurement, documentation, and compliance
+settings applicable to a cargo type.
+
+13.1 CREATING PETROLEUM TRANSPORT PROFILE
+
+  Path: Manage Your Solution → Transportation Management →
+        Transport Profiles
+
+  1. Create New Profile
+  2. Profile ID: PETRO_SEA
+  3. Description: Petroleum Sea Cargo Profile
+  4. Assign to: Freight Order Types PTANK, PLPG, COAST
+
+  Settings to configure:
+    a) Measurement Basis: VOLUME (Liters or MT — confirm with Ardova)
+       NOTE: For LPG, MT (metric tons) is standard.
+       For AGO/ATK, liters at 15°C (ambient temperature correction).
+    b) Document Types Required:
+         - Bill of Lading
+         - Certificate of Quality
+         - Certificate of Quantity (from independent inspector)
+         - MARPOL / IMO certificates (for tanker compliance)
+    c) Inspection Requirement: MANDATORY (SGS, Intertek, or Bureau Veritas)
+    d) Insurance: Cargo Insurance Required flag = YES
+
+13.2 MATERIAL MASTER SETTINGS FOR PETROLEUM
+
+  Each petroleum product must be configured in Material Master with:
+  1. Open "Manage Material Master" app (or MM01 in On-Premise)
+  2. For AGO (Diesel):
+       - Material Type: HAWA (Trading Goods) or ROH (Raw Material)
+       - Storage Conditions: Flammable Liquid Class II
+       - Unit of Measure: L (liters) with conversion to MT
+       - Density Reference: 0.845 kg/L (standard AGO density)
+  3. For LPG:
+       - Dangerous Goods Profile: Class 2.1
+       - Packaging Group: I
+       - UN Number: 1075 (Petroleum Gases, liquefied)
+  4. For ATK:
+       - Storage: Flammable Liquid Class I
+       - Density Reference: 0.800 kg/L (standard jet fuel density)
+  5. For BIT (Bitumen):
+       - Storage: High Temperature handling
+       - Unit: MT
+
+  COMMON MISTAKE: Failing to maintain the dangerous goods data on the
+  material master for LPG before creating LPG freight orders. The system
+  will block the order creation if dangerous goods data is incomplete.
+
+
+------------------------------------------------------------------------
+SECTION 14: VOLUME DETERMINATION AND RECONCILIATION SETUP
+------------------------------------------------------------------------
+
+Petroleum volume is never exactly what was loaded. Temperature, trim,
+and measurement method all affect the final quantity. SAP TM supports
+volume determination to handle this.
+
+14.1 CONFIGURING QUANTITY DETERMINATION
+
+  Path: Configure Your Solution → Transportation Management →
+        Quantity Determination
+
+  1. Enable "Gross Observed Volume" vs "Net Standard Volume" tracking
+  2. Set Standard Temperature: 15°C (international petroleum standard)
+  3. Configure Volume Correction Factor (VCF) lookup by product:
+       AGO:  ASTM table 54B
+       ATK:  ASTM table 54B
+       LPG:  GPA 8173 or equivalent
+  4. Measurement Points:
+       LOAD  — quantity at load port (Ship Ullage Survey)
+       DISCH — quantity at discharge port (Tank Gauging)
+  5. Tolerance Configuration:
+       Acceptable variance: 0.3% (standard petroleum trade tolerance)
+       Warning threshold:   0.5%
+       Exception threshold: 1.0% (triggers reconciliation workflow)
+
+14.2 RECONCILIATION PROCESS IN TM
+
+  Fiori App: "Manage Freight Orders" → select order → Quantity tab
+
+  1. Enter Load Port Quantity (from Bill of Lading)
+  2. Enter Discharge Port Quantity (from Delivery Order / Tank Gauge)
+  3. System calculates variance
+  4. If within tolerance: auto-confirm and proceed to settlement
+  5. If outside tolerance: system flags exception
+  6. Assign to Trade Operations team for investigation
+  7. Outcome: Accept variance / Raise shortage claim with carrier
+
+
+------------------------------------------------------------------------
+SECTION 15: CUSTOM FIELD — TRADE CARD ID ON FREIGHT ORDER
+------------------------------------------------------------------------
+
+Same principle as TRM (Section 9) — Trade Card ID must appear on the
+Freight Order for end-to-end traceability.
+
+15.1 ADDING CUSTOM FIELD TO FREIGHT ORDER
+
+  1. Open "Custom Fields and Logic" app
+  2. Business Context: "Freight Order Header"
+  3. Field Definition:
+       Label: Trade Card ID
+       Technical Name: YY1_TRADE_CARD_ID_FO
+       Data Type: Text (Length 20)
+  4. Enable for Fiori UI and OData API
+  5. Publish
+
+  NOTE: Use a slightly different technical name suffix (_FO) to
+  distinguish from the TRM field (_FRN or equivalent), though the
+  business value should be the same.
+
+15.2 VERIFICATION
+
+  After publishing:
+  1. Open "Manage Freight Orders"
+  2. Create a test freight order
+  3. Verify "Trade Card ID" field appears in the header section
+  4. Manually enter a test value and save
+  5. Confirm value is retrievable via API
+
+
+------------------------------------------------------------------------
+SECTION 16: LOAD PORT AND DESTINATION PORT CONFIGURATION
+------------------------------------------------------------------------
+
+TM uses a Transportation Network model. Ports must be defined as
+Locations before they can be used in Freight Orders.
+
+16.1 DEFINING PORT LOCATIONS
+
+  Fiori App: "Manage Transportation Networks" → Locations
+
+  For each port, create a Location record:
+
+  Load Ports (overseas — typical for Ardova imports):
+    Name: PORT_ROTTERDAM    | Type: Sea Port | Country: NL
+    Name: PORT_HOUSTON      | Type: Sea Port | Country: US
+    Name: PORT_AMSTERDAM    | Type: Sea Port | Country: NL
+    Name: PORT_JUBAIL       | Type: Sea Port | Country: SA (LPG)
+
+  Destination Ports (Nigerian):
+    Name: PORT_APAPA        | Type: Sea Port | Country: NG
+    Name: PORT_ATLAS_COVE   | Type: Sea Terminal | Country: NG
+    Name: PORT_WARRI        | Type: River Port | Country: NG
+    Name: PORT_CALABAR      | Type: Sea Port | Country: NG
+
+  For each Location:
+  1. Enter UN/LOCODE if available (e.g., Rotterdam = NL RTM)
+  2. Add GPS coordinates for tracking
+  3. Assign Time Zone
+  4. For Nigerian ports: add APMT / port agent Business Partner
+
+16.2 DEFINING TRANSPORT LANES
+
+  A Transport Lane links a load port to a destination port and sets
+  default transit parameters.
+
+  Fiori App: "Manage Transportation Networks" → Transport Lanes
+
+  Example:
+  1. Create Lane: ROTTERDAM_TO_APAPA
+  2. Source: PORT_ROTTERDAM
+  3. Destination: PORT_APAPA
+  4. Transport Mode: Sea
+  5. Default Transit Time: 21 days
+  6. Default Carrier: [assign preferred tanker operator BP if known]
+
+  Repeat for all active Ardova trade lanes.
+
+
+================================================================================
+PART D — GATE PATTERN INTEGRATION
+================================================================================
+
+------------------------------------------------------------------------
+SECTION 17: WORKFLOW — TRADE CARD APPROVAL → TRM ACTIVATION
+------------------------------------------------------------------------
+
+This is the first gate in the Ardova process: only approved Trade Cards
+should trigger creation of TRM financial instruments.
+
+17.1 GATE 1 DESIGN
+
+  Trigger:      Trade Card status changes to "Approved" in BTP Custom App
+  Action:       SAP Build Process Automation calls TRM API to create LC/BG
+  Output:       TRM Transaction ID written back to Trade Card record
+
+17.2 SPA WORKFLOW DESIGN (TRADE CARD → TRM)
+
+  Process Steps:
+  1. Start Event: Trade Card status = "APPROVED"
+  2. Decision: Trade Finance Type?
+       - LC      → proceed to Step 3
+       - BG      → proceed to Step 4
+       - Open    → skip TRM, proceed directly to pricing (BTP logic)
+  3. Create LC:
+       - Call action: S/4HANA Financial Transaction API (POST)
+       - Payload: {productType: "51", companyCode: "ARDV",
+                   YY1_TRADE_CARD_ID: tradeCardId, amount: dealAmount, ...}
+       - On success: extract trmTransactionId from response
+  4. Create BG: (same as above with productType "55")
+  5. Write Back: Call BTP CAP API to update Trade Card with trmTransactionId
+  6. Notify: Send notification to Finance team via SAP Work Zone or email
+
+  COMMON MISTAKE: Not handling API error responses in the SPA flow.
+  Build explicit error handling steps that notify the operations team
+  if the TRM creation fails (e.g., due to missing bank BP master data).
+
+17.3 BTP DESTINATION CONFIGURATION
+
+  In BTP Cockpit:
+  1. Navigate to your subaccount → Connectivity → Destinations
+  2. Create Destination: S4H_TRM_API
+       URL: https://<your-tenant>.s4hana.ondemand.com
+       Authentication: OAuth2ClientCredentials
+       Client ID: [from SAP_COM_0118 arrangement]
+       Client Secret: [from SAP_COM_0118 arrangement]
+       Token Service URL: [S/4HANA token endpoint]
+
+
+------------------------------------------------------------------------
+SECTION 18: WORKFLOW — TRM COMPLETION → TM ACTIVATION
+------------------------------------------------------------------------
+
+This is Gate 2: TM Freight Order is only created once the trade finance
+instrument is confirmed/active.
+
+18.1 GATE 2 DESIGN
+
+  Trigger:      TRM Financial Transaction status = "Active" or "Confirmed"
+  Action:       SPA creates TM Freight Order via TM API
+  Output:       Freight Order number written to Trade Card
+
+18.2 DETECTING TRM STATUS CHANGE
+
+  Options:
+  a) Polling (simpler): SPA scheduled job checks TRM transaction status
+     every 30 minutes. If status changed to Active, trigger TM creation.
+
+  b) Event-based (preferred): Configure S/4HANA Business Events
+     (SAP_COM_0092 or equivalent) to publish event when TRM status changes.
+     SPA subscribes to the event and triggers immediately.
+
+  For Phase 1, use polling (simpler to implement).
+  For Phase 2, migrate to event-based for real-time response.
+
+18.3 SPA WORKFLOW DESIGN (TRM → TM)
+
+  Process Steps:
+  1. Start: TRM status = Active (polled or event-triggered)
+  2. Retrieve Trade Card: fetch deal data using Trade Card ID
+  3. Create Freight Order:
+       - Call TM Freight Order API (POST /FreightOrders)
+       - Payload includes:
+           freightOrderType: "PTANK" or "PLPG" (derived from product)
+           loadPort: trade card departure port
+           dischargePort: trade card arrival port
+           cargo: {material: AGO/LPG/ATK/BIT, quantity: dealQty}
+           YY1_TRADE_CARD_ID_FO: tradeCardId
+  4. Write Back freight order number to Trade Card
+  5. Notify Operations team
+
+
+------------------------------------------------------------------------
+SECTION 19: SAP BUILD PROCESS AUTOMATION — TRIGGER CONFIGURATION
+------------------------------------------------------------------------
+
+19.1 SETTING UP SPA PROJECT IN BTP
+
+  1. Open SAP Build Process Automation in BTP subaccount
+  2. Create New Project: "Ardova Trade Workflow"
+  3. Create two processes:
+       a) TradeCard_To_TRM
+       b) TRM_To_FreightOrder
+  4. For each process, configure:
+       - Triggers (API trigger or scheduled trigger)
+       - Actions (HTTP calls to S/4HANA APIs)
+       - Decision logic (product type → freight order type mapping)
+       - Error handling steps
+
+19.2 API ACTIONS LIBRARY
+
+  In SPA, create reusable Action entries:
+  1. Action: CreateTRMTransaction
+       HTTP Method: POST
+       Destination: S4H_TRM_API
+       Path: /sap/opu/odata/sap/API_FINANCIAL_TRANSACTION/...
+  2. Action: CreateFreightOrder
+       HTTP Method: POST
+       Destination: S4H_TM_API
+       Path: /sap/opu/odata/sap/API_FREIGHT_ORDER/...
+  3. Action: UpdateTradeCard
+       HTTP Method: PATCH
+       Destination: BTP_CAP_API
+       Path: /trade-cards/{id}
+
+
+------------------------------------------------------------------------
+SECTION 20: STATUS VISIBILITY ACROSS MODULES
+------------------------------------------------------------------------
+
+The Trade Card app must show users a unified status view.
+
+20.1 STATUS FIELDS TO SURFACE ON TRADE CARD
+
+  Field                | Source System | How Retrieved
+  ---------------------|---------------|---------------------------
+  Trade Card Status    | BTP CAP DB    | Direct read
+  Form M Status        | BTP CAP DB    | Direct read
+  TRM Status           | S/4HANA TRM   | API call via SAP_COM_0118
+  Freight Order Status | S/4HANA TM    | API call via TM OData API
+  Invoice Status       | S/4HANA FI    | Optional Phase 2
+
+20.2 IMPLEMENTATION RECOMMENDATION
+
+  Use a BTP CAP service that aggregates status from all sources:
+  1. CAP entity TradeCardStatus with computed fields
+  2. On-demand fetch from S/4HANA APIs when Trade Card detail is opened
+  3. Cache TRM and TM status in HANA Cloud (refresh on open, or every hour)
+
+  This avoids overloading S/4HANA with real-time API calls while keeping
+  the Fiori app responsive.
+
+
+================================================================================
+PART E — BTP EXTENSIONS FOR GAPS
+================================================================================
+
+------------------------------------------------------------------------
+SECTION 21: FORM M CUSTOM BTP APP (REQUIRED — NOT IN STANDARD SAP)
+------------------------------------------------------------------------
+
+21.1 SCOPE AND JUSTIFICATION
+
+  As established in Section 10, Form M is a CBN-mandated document with
+  no SAP standard equivalent. This is a confirmed gap — build a CAP app.
+
+21.2 MINIMUM VIABLE PRODUCT (MVP) FEATURES
+
+  Phase 1 — Core:
+    - Create / Edit Form M record
+    - Link to Trade Card and TRM transaction
+    - Amendment tracking (up to 3 amendments per CBN rules)
+    - Status workflow: Draft → Submitted to Bank → Bank Approved → Expired
+    - Print/Export Form M data to PDF (for bank submission)
+
+  Phase 2 — Enhanced:
+    - Scan and attach the CBN-stamped Form M document
+    - Alert when Form M is expiring (30-day warning)
+    - Auto-extension request workflow
+
+21.3 INTEGRATION TOUCHPOINTS
+
+  - Read TRM Transaction ID from S/4HANA via SAP_COM_0118
+  - Write Form M Number back to TRM custom field (YY1_FORM_M_NUMBER)
+  - Trigger notification to Finance team on Form M approval
+
+
+------------------------------------------------------------------------
+SECTION 22: OPEN MARKET TRIGGER PRICING LOGIC (BTP CAP EXTENSION)
+------------------------------------------------------------------------
+
+22.1 PROBLEM STATEMENT
+
+  Some Ardova trades are priced at "Open Market" — meaning the final
+  price is determined by Platts or NMDPRA published prices on the
+  pricing date, not a fixed contract price. SAP standard does not
+  handle this dynamic pricing trigger natively for trade finance.
+
+22.2 CAP EXTENSION DESIGN
+
+  1. CAP entity: PricingReference {
+       productCode     : String(10);
+       pricingDate     : Date;
+       plattsMarker    : String(20);  // e.g., "DATED_BRENT", "NMDPRA_AGO"
+       basePrice       : Decimal(10,4);
+       differential    : Decimal(10,4);  // premium or discount
+       finalPrice      : Decimal(10,4);  // computed
+       currency        : String(3);
+       tradeCardId     : String(20);
+     }
+  2. Price Feed Integration:
+       Option A: Manual entry by trader (Phase 1)
+       Option B: Automated feed from Platts API or NMDPRA portal (Phase 2)
+  3. Once finalPrice is confirmed:
+       - Update Trade Card with price
+       - Trigger update to TRM transaction amount if LC value needs revision
+       - Log price confirmation event
+
+22.3 ARDOVA-SPECIFIC PRICING MARKERS
+
+  Product | Pricing Marker                | Differential Basis
+  --------|-------------------------------|---------------------
+  AGO     | NMDPRA Published (NGN/Ltr)    | FOB + freight + margin
+  ATK     | Platts Singapore Kero         | CIF + handling
+  LPG     | Saudi CP (monthly)            | CIF Apapa
+  BIT     | Spot market inquiry           | Fixed price per MT
+
+
+------------------------------------------------------------------------
+SECTION 23: TRADE CARD FIORI APP (REMAINS CUSTOM — NO STANDARD EQUIVALENT)
+------------------------------------------------------------------------
+
+23.1 CONFIRMATION: NO STANDARD SAP EQUIVALENT
+
+  There is no SAP standard app that represents a "Trade Card" — the
+  unified deal orchestration object that links a petroleum trade from
+  initiation through finance, logistics, and settlement.
+
+  This remains a custom BTP CAP + Fiori Elements app.
+
+23.2 TRADE CARD APP REQUIREMENTS (SUMMARY)
+
+  The Trade Card app must:
+  - Allow traders to capture deal details (product, volume, counterparty,
+    price basis, incoterm, financing type)
+  - Route for approval (SPA workflow)
+  - On approval: trigger TRM (Section 17) and TM (Section 18) creation
+  - Display unified status view (Section 20)
+  - Link to Form M records (Section 21)
+  - Link to pricing records (Section 22)
+
+23.3 RECOMMENDED DATA MODEL (KEY FIELDS)
+
+  TradeCard {
+    tradeCardId      : String(20) @key;   // auto-generated
+    dealDate         : Date;
+    product          : String(20);        // AGO, LPG, ATK, BIT
+    quantity         : Decimal(15,3);
+    unit             : String(3);         // MT or L
+    counterparty     : String(50);        // Business Partner reference
+    incoterm         : String(3);         // FOB, CIF, DDP, etc.
+    priceType        : String(10);        // FIXED or OPEN_MARKET
+    financeType      : String(10);        // LC, BG, OPEN
+    tradeStatus      : String(20);        // lifecycle status
+    trmTransactionId : String(20);        // set after TRM creation
+    freightOrderId   : String(20);        // set after TM creation
+    formMId          : UUID;              // link to Form M record
+    approvedBy       : String(50);
+    approvedAt       : Timestamp;
+  }
+
+
+------------------------------------------------------------------------
+SECTION 24: POSITION DASHBOARD (OPTIONAL BTP ANALYTICS LAYER)
+------------------------------------------------------------------------
+
+24.1 PURPOSE
+
+  A Position Dashboard gives Ardova management visibility into:
+  - Open trade positions by product (volume exposure)
+  - LC/BG utilization vs available bank lines
+  - Cargo in transit
+  - Revenue/cost accrual by deal
+
+24.2 IMPLEMENTATION OPTIONS
+
+  Option A (Phase 2 — Recommended): SAP Analytics Cloud (SAC)
+    - Connect SAC to S/4HANA for TRM and TM data
+    - Connect SAC to BTP HANA Cloud for Trade Card data
+    - Build Live Data Connection dashboards
+    - No ETL pipeline required
+
+  Option B (Phase 1 — Simpler): Embedded Fiori Analytics
+    - Use CDS analytical views on HANA Cloud
+    - Build a Fiori Elements Analytical List Page
+    - Covers Trade Card position; TRM/TM data polled and stored locally
+
+  Recommendation: Build Option B in Phase 1 for quick wins.
+  Plan Option A as part of the Phase 2 SAC rollout.
+
+
+================================================================================
+PART F — TESTING AND GO-LIVE
+================================================================================
+
+------------------------------------------------------------------------
+SECTION 25: INTEGRATION TEST SCENARIOS
+------------------------------------------------------------------------
+
+Execute all scenarios in the Quality/Test S/4HANA client before UAT.
+
+SCENARIO 01: Full LC Trade — AGO Import
+  Step 1:  Create Trade Card in BTP app (Product: AGO, Finance: LC)
+  Step 2:  Submit for approval → approve in SPA workflow
+  Step 3:  Verify LC created in S/4HANA TRM with correct Trade Card ID
+  Step 4:  Update LC status to "Active" in TRM
+  Step 5:  Verify Freight Order of type PTANK created in TM
+  Step 6:  Verify Trade Card shows TRM ID and Freight Order number
+  Step 7:  Enter Load Port quantity in TM Freight Order
+  Step 8:  Enter Discharge quantity → verify within tolerance
+  Expected Result: All records linked, no errors, Trade Card status current
+
+SCENARIO 02: LPG Import with BG + Form M
+  Step 1:  Create Trade Card (Product: LPG, Finance: BG)
+  Step 2:  Approve → verify BG created in TRM
+  Step 3:  Create Form M record linked to Trade Card and BG
+  Step 4:  Update Form M status to "Bank Approved"
+  Step 5:  Verify Freight Order type PLPG created in TM
+  Step 6:  Verify dangerous goods data appears on Freight Order
+  Expected Result: LPG order created with DG flags, Form M linked
+
+SCENARIO 03: Volume Variance Reconciliation
+  Step 1:  Create and activate a PTANK Freight Order (AGO cargo)
+  Step 2:  Enter Load quantity: 10,000 MT
+  Step 3:  Enter Discharge quantity: 9,910 MT (0.9% variance)
+  Step 4:  System should flag exception (> 0.5% threshold)
+  Expected Result: Exception workflow triggers, notification sent
+
+SCENARIO 04: Open Market Trade (No TRM)
+  Step 1:  Create Trade Card (Finance Type: OPEN)
+  Step 2:  Approve → verify SPA skips TRM creation
+  Step 3:  Enter pricing reference (Platts date + price)
+  Step 4:  Verify TM Freight Order created directly
+  Expected Result: No TRM record, Freight Order created with pricing note
+
+SCENARIO 05: LC Amendment
+  Step 1:  Locate existing active LC in TRM
+  Step 2:  Amend LC amount (increased by 5%)
+  Step 3:  Verify amendment is recorded with original value preserved
+  Step 4:  Verify amendment notification sent to finance team
+  Expected Result: LC shows amendment history; amount updated
+
+
+------------------------------------------------------------------------
+SECTION 26: UAT CHECKLIST
+------------------------------------------------------------------------
+
+Involve Ardova business users (Traders, Finance, Operations) in UAT.
+Each row must be signed off by a named business user.
+
+TRADE FINANCE UAT
+
+  [ ] Trader can create a Trade Card and submit for approval
+  [ ] Finance Manager can approve a Trade Card in SAP Work Zone
+  [ ] Finance team can see the LC created in TRM with correct data
+  [ ] LC links back to Trade Card ID (visible on TRM screen)
+  [ ] Bank Guarantee creation works same as LC
+  [ ] Form M can be created and linked to an LC
+  [ ] Form M amendment workflow works (up to 3 amendments)
+  [ ] TRM status visible from Trade Card app without navigating to S/4HANA
+
+TRADE OPERATIONS UAT
+
+  [ ] Freight Order created automatically on TRM activation
+  [ ] Freight Order shows correct product, quantity, port details
+  [ ] LPG Freight Order shows dangerous goods data
+  [ ] Load port quantity can be entered in TM
+  [ ] Discharge port quantity can be entered in TM
+  [ ] Within-tolerance variance auto-confirms
+  [ ] Out-of-tolerance variance triggers exception alert
+  [ ] Freight Order number visible in Trade Card app
+
+INTEGRATION UAT
+
+  [ ] Trade Card → TRM creation completes within 2 minutes
+  [ ] TRM activation → TM creation completes within 2 minutes
+  [ ] No duplicate TRM/TM records created on re-trigger
+  [ ] Error in TRM creation sends alert to Finance team
+  [ ] All status fields correct on Trade Card dashboard
+
+REPORTING UAT (if Position Dashboard built)
+
+  [ ] Open positions report shows correct product volumes
+  [ ] LC utilization report reflects current TRM data
+  [ ] Cargoes in transit report matches TM freight orders
+
+
+------------------------------------------------------------------------
+SECTION 27: GO-LIVE SEQUENCE
+------------------------------------------------------------------------
+
+Follow this sequence strictly. Do not proceed to the next step until
+the current step is signed off.
+
+WEEK -4: MASTER DATA CUTOVER
+  Day 1:  Load all Business Partners (banks, counterparties, carriers)
+  Day 2:  Load Material Master (AGO, LPG, ATK, BIT with DG data)
+  Day 3:  Load Transportation Network (ports, lanes)
+  Day 4:  Verify master data quality — run consistency checks
+  Day 5:  Sign-off by Ardova Data Owner
+
+WEEK -3: SYSTEM CONFIGURATION VALIDATION
+  Day 1:  Validate all TRM product types and settings (LC, BG, BC)
+  Day 2:  Validate TM freight order types and transport profiles
+  Day 3:  Validate custom fields (Trade Card ID on TRM and TM)
+  Day 4:  Validate communication arrangements (SAP_COM_0118, SAP_COM_0106)
+  Day 5:  Sign-off by Consultant and SAP Basis
+
+WEEK -2: INTEGRATION VALIDATION
+  Day 1:  End-to-end test: Scenario 01 (AGO LC full cycle)
+  Day 2:  End-to-end test: Scenario 02 (LPG BG + Form M)
+  Day 3:  Regression test: Scenarios 03, 04, 05
+  Day 4:  Performance test: simulate 10 concurrent trade card approvals
+  Day 5:  Sign-off by Integration Lead
+
+WEEK -1: UAT AND TRAINING
+  Day 1–3: Business user UAT (Traders, Finance, Operations)
+  Day 4:   Defect fixing and retest
+  Day 5:   UAT sign-off by Ardova Business Owner
+
+GO-LIVE WEEK:
+  Day 1 (Monday):   Freeze legacy system (no new trades in old system)
+  Day 2 (Tuesday):  Open SAP for first trade entry — supervised
+  Day 2–3:          Hypercare: consultant on-site / remote standby
+  Day 5 (Friday):   First week review and handover to Ardova support team
+
+POST GO-LIVE (Month 1):
+  - Weekly review calls for first 4 weeks
+  - Track any TRM/TM integration errors
+  - Tune SPA workflow error handling based on real data
+  - Plan Phase 2 enhancements (SAC dashboard, event-based integration)
+
+
+================================================================================
+APPENDIX A: KEY CONFIGURATION REFERENCE
+================================================================================
+
+  TRM Product Types Used:
+    51  = Import Letter of Credit
+    52  = Export Letter of Credit
+    55  = Bank Guarantee
+    56  = Bills for Collection
+
+  TM Freight Order Types (Ardova Custom):
+    PTANK = Petroleum Tanker (AGO, ATK, BIT)
+    PLPG  = LPG Tanker (dangerous goods class 2.1)
+    COAST = Coastal Barge (domestic Nigeria)
+
+  Communication Scenarios:
+    SAP_COM_0118 = Treasury / TRM API
+    SAP_COM_0106 = Bank Communication Management
+    SAP_COM_0092 = Business Events (Phase 2)
+
+  Custom Fields:
+    YY1_TRADE_CARD_ID     = Trade Card ID on TRM Financial Transaction
+    YY1_TRADE_CARD_ID_FO  = Trade Card ID on TM Freight Order
+    YY1_FORM_M_NUMBER     = Form M Number on TRM Financial Transaction
+
+  Key Fiori Apps:
+    Manage Financial Transactions  = TRM transaction creation/editing
+    Monitor Financial Transactions = TRM read-only overview
+    Manage Freight Orders          = TM freight order create/edit
+    Monitor Freight Orders         = TM tracking dashboard
+    Custom Fields and Logic        = Adding custom fields to standard objects
+    Communication Arrangements     = API arrangement configuration
+    Manage Your Solution           = Scope item activation (Public Cloud)
+
+
+================================================================================
+APPENDIX B: CONTACTS AND ESCALATION
+================================================================================
+
+  SAP License / Scope Questions:     SAP Account Executive
+  TRM Configuration Issues:          SAP TRM Module Consultant
+  TM Configuration Issues:           SAP TM Module Consultant
+  BTP / CAP / Integration Issues:    SAP BTP Architect
+  Ardova Business Sign-offs:         Trade & Supply Business Owner
+  CBN/Form M Compliance Questions:   Ardova Compliance / Treasury Team
+
+================================================================================
+END OF GUIDE
+Document: Consultant_Module_Configuration_Guide.txt
+Version: 1.0 | March 2026
+Ardova Trade & Supply Management System
+================================================================================

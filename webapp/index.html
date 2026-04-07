@@ -3,10 +3,8 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Product Catalog Manager | SAP Fiori</title>
+    <title>Trade Card | Ardova Trade &amp; Supply</title>
     <script>
-        // Local development: point API calls to the Node.js backend on port 3000.
-        // On BTP (approuter), this variable is not set and the relative /api/* path is used instead.
         if (window.location.hostname === "localhost") {
             window.API_BASE_URL = "http://localhost:3000";
         }
@@ -14,7 +12,7 @@
     <script id="sap-ui-bootstrap"
         src="https://ui5.sap.com/1.120.0/resources/sap-ui-core.js"
         data-sap-ui-theme="sap_horizon"
-        data-sap-ui-resourceroots='{"com.demo.productcatalog": "./"}'
+        data-sap-ui-resourceroots='{"com.ardova.tradecard": "./"}'
         data-sap-ui-compatVersion="edge"
         data-sap-ui-async="true"
         data-sap-ui-oninit="module:sap/ui/core/ComponentSupport"
@@ -24,9 +22,9 @@
 </head>
 <body class="sapUiBody" id="content">
     <div data-sap-ui-component
-         data-name="com.demo.productcatalog"
+         data-name="com.ardova.tradecard"
          data-id="container"
-         data-settings='{"id":"productcatalog"}'
+         data-settings='{"id":"tradecard"}'
          style="height:100%">
     </div>
 </body>

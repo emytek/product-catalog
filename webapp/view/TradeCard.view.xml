@@ -1,0 +1,1275 @@
+<mvc:View
+    controllerName="com.ardova.tradecard.controller.TradeCard"
+    xmlns:mvc="sap.ui.core.mvc"
+    xmlns="sap.m"
+    xmlns:f="sap.f"
+    xmlns:layout="sap.ui.layout"
+    xmlns:form="sap.ui.layout.form"
+    xmlns:core="sap.ui.core"
+    displayBlock="true">
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         TRADE CARD — ARDOVA TRADE & SUPPLY
+         Outer container: sap.f.DynamicPage (standard SAP S/4HANA pattern)
+         ═══════════════════════════════════════════════════════════════════ -->
+    <f:DynamicPage id="tradeCardPage"
+                   headerExpanded="true"
+                   toggleHeaderOnTitleClick="false"
+                   showFooter="true"
+                   class="tcDynamicPage">
+
+        <!-- ─── PAGE TITLE (Document Identification Header) ──────────────── -->
+        <f:title>
+            <f:DynamicPageTitle>
+                <f:heading>
+                    <VBox class="tcDocHeaderBox">
+                        <Label text="TRADE CARD" class="tcCategoryLabel" design="Bold"/>
+                        <Title text="{tradeCard>/id}" level="H2" class="tcDocumentId"/>
+                    </VBox>
+                </f:heading>
+                <f:actions>
+                    <Button icon="sap-icon://edit" tooltip="Edit" type="Transparent" press="onEdit"/>
+                    <Button icon="sap-icon://print" tooltip="Print" type="Transparent" press="onPrint"/>
+                    <Button icon="sap-icon://share" tooltip="Share" type="Transparent" press="onShare"/>
+                </f:actions>
+            </f:DynamicPageTitle>
+        </f:title>
+
+        <!-- ─── PAGE CONTENT ─────────────────────────────────────────────── -->
+        <f:content>
+            <VBox class="tcContentWrapper">
+
+                <!-- ══ MAIN TAB BAR ══════════════════════════════════════════
+                     4 tabs: Process (active), Report, Show Attached, More Options
+                     ══════════════════════════════════════════════════════════ -->
+                <IconTabBar id="tcTabBar"
+                            class="tcMainTabBar"
+                            expandable="false"
+                            stretchContentHeight="false"
+                            backgroundDesign="Transparent"
+                            tabDensityMode="Compact"
+                            select="onTabSelect">
+                    <items>
+
+                        <!-- ══ PROCESS TAB (Active — contains all form content) ══ -->
+                        <IconTabFilter text="Process" key="process" class="tcTabFilter">
+
+                            <VBox class="tcProcessContent">
+
+                                <!-- ════════════════════════════════════════════
+                                     SECTION 1 — GENERAL
+                                     ════════════════════════════════════════════ -->
+                                <VBox class="tcSectionHeaderBox">
+                                    <Title text="General" level="H3" class="tcSectionTitle"/>
+                                    <HTML content="&lt;hr class='tcHrBold'/&gt;"/>
+                                </VBox>
+
+                                <!-- ── GENERAL FORM: Left Column / Right Column ── -->
+                                <form:Form id="generalForm"
+                                           editable="true"
+                                           class="tcGeneralForm">
+                                    <form:layout>
+                                        <form:ResponsiveGridLayout
+                                            columnsXL="2"
+                                            columnsL="2"
+                                            columnsM="1"
+                                            columnsS="1"
+                                            labelSpanXL="5"
+                                            labelSpanL="5"
+                                            labelSpanM="4"
+                                            labelSpanS="12"
+                                            adjustLabelSpan="false"
+                                            emptySpanXL="0"
+                                            emptySpanL="0"
+                                            emptySpanM="0"
+                                            emptySpanS="0"
+                                            singleContainerFullSize="false"/>
+                                    </form:layout>
+                                    <form:formContainers>
+
+                                        <!-- ── LEFT COLUMN ─────────────────── -->
+                                        <form:FormContainer>
+                                            <form:formElements>
+
+                                                <form:FormElement label="Product Code">
+                                                    <form:fields>
+                                                        <Select selectedKey="{tradeCard>/productCode}"
+                                                                width="100%"
+                                                                change="onFieldChange">
+                                                            <items>
+                                                                <core:Item key="" text="-- Select --"/>
+                                                                <core:Item key="AGO" text="AGO — Automotive Gas Oil"/>
+                                                                <core:Item key="ATK" text="ATK — Jet Fuel"/>
+                                                                <core:Item key="BIT" text="BIT — Bitumen"/>
+                                                            </items>
+                                                        </Select>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Trade Code">
+                                                    <form:fields>
+                                                        <Input value="{tradeCard>/tradeCode}"
+                                                               placeholder="e.g. TRD-2026-001"
+                                                               liveChange="onFieldChange"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Trade Desc">
+                                                    <form:fields>
+                                                        <Input value="{tradeCard>/tradeDesc}"
+                                                               placeholder="Enter trade description"
+                                                               liveChange="onFieldChange"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Demand Qty (MT)">
+                                                    <form:fields>
+                                                        <Input value="{tradeCard>/demandQtyMT}"
+                                                               placeholder="Quantity in metric tonnes"
+                                                               liveChange="onFieldChange"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Trade Planner Remark">
+                                                    <form:fields>
+                                                        <Input value="{tradeCard>/tradePlannerRemark}"
+                                                               placeholder="Enter planner remarks"
+                                                               liveChange="onFieldChange"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Demand Qty (Ltrs)">
+                                                    <form:fields>
+                                                        <Input value="{tradeCard>/demandQtyLtrs}"
+                                                               placeholder="Quantity in litres"
+                                                               liveChange="onFieldChange"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                            </form:formElements>
+                                        </form:FormContainer>
+
+                                        <!-- ── RIGHT COLUMN ────────────────── -->
+                                        <form:FormContainer>
+                                            <form:formElements>
+
+                                                <form:FormElement label="Status">
+                                                    <form:fields>
+                                                        <Select selectedKey="{tradeCard>/status}"
+                                                                width="100%"
+                                                                change="onStatusChange">
+                                                            <items>
+                                                                <core:Item key="" text="-- Select --"/>
+                                                                <core:Item key="DRAFT" text="Draft"/>
+                                                                <core:Item key="PENDING" text="Pending Approval"/>
+                                                                <core:Item key="APPROVED" text="Approved"/>
+                                                                <core:Item key="REJECTED" text="Rejected"/>
+                                                                <core:Item key="ACTIVE" text="Active"/>
+                                                                <core:Item key="CLOSED" text="Closed"/>
+                                                            </items>
+                                                        </Select>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Volume to Purchase">
+                                                    <form:fields>
+                                                        <Input type="Number"
+                                                               value="{tradeCard>/volumeToPurchase}"
+                                                               placeholder="0"
+                                                               liveChange="onFieldChange"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Conversion Factor">
+                                                    <form:fields>
+                                                        <Input type="Number"
+                                                               value="{tradeCard>/conversionFactor}"
+                                                               placeholder="0"
+                                                               liveChange="onConversionFactorChange"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Volume to Purchase (Ltrs)">
+                                                    <form:fields>
+                                                        <Input type="Number"
+                                                               value="{tradeCard>/volumeToPurchaseLtrs}"
+                                                               placeholder="0"
+                                                               liveChange="onFieldChange"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="NNPC BPA Agreement Validity">
+                                                    <form:fields>
+                                                        <Select selectedKey="{tradeCard>/nnpcBPAValidity}"
+                                                                width="100%">
+                                                            <items>
+                                                                <core:Item key="" text="-- Select --"/>
+                                                                <core:Item key="VALID" text="Valid"/>
+                                                                <core:Item key="EXPIRING" text="Expiring Soon"/>
+                                                                <core:Item key="EXPIRED" text="Expired"/>
+                                                                <core:Item key="NA" text="N/A"/>
+                                                            </items>
+                                                        </Select>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="DPR Licences/Permits Validity">
+                                                    <form:fields>
+                                                        <Select selectedKey="{tradeCard>/dprLicenceValidity}"
+                                                                width="100%">
+                                                            <items>
+                                                                <core:Item key="" text="-- Select --"/>
+                                                                <core:Item key="VALID" text="Valid"/>
+                                                                <core:Item key="EXPIRING" text="Expiring Soon"/>
+                                                                <core:Item key="EXPIRED" text="Expired"/>
+                                                                <core:Item key="NA" text="N/A"/>
+                                                            </items>
+                                                        </Select>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Supplier Registration Validity">
+                                                    <form:fields>
+                                                        <Select selectedKey="{tradeCard>/supplierRegValidity}"
+                                                                width="100%">
+                                                            <items>
+                                                                <core:Item key="" text="-- Select --"/>
+                                                                <core:Item key="VALID" text="Valid"/>
+                                                                <core:Item key="EXPIRING" text="Expiring Soon"/>
+                                                                <core:Item key="EXPIRED" text="Expired"/>
+                                                                <core:Item key="NA" text="N/A"/>
+                                                            </items>
+                                                        </Select>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="PPPRA Registration/QNA Validity">
+                                                    <form:fields>
+                                                        <Select selectedKey="{tradeCard>/pppraValidity}"
+                                                                width="100%">
+                                                            <items>
+                                                                <core:Item key="" text="-- Select --"/>
+                                                                <core:Item key="VALID" text="Valid"/>
+                                                                <core:Item key="EXPIRING" text="Expiring Soon"/>
+                                                                <core:Item key="EXPIRED" text="Expired"/>
+                                                                <core:Item key="NA" text="N/A"/>
+                                                            </items>
+                                                        </Select>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                            </form:formElements>
+                                        </form:FormContainer>
+
+                                    </form:formContainers>
+                                </form:Form>
+
+                                <!-- ════════════════════════════════════════════
+                                     SECTION 2 — TRADE DEMANDS
+                                     ════════════════════════════════════════════ -->
+                                <HTML content="&lt;hr class='tcHrThin tcSectionGap'/&gt;"/>
+                                <VBox class="tcSectionHeaderBox tcSectionSpacingTop">
+                                    <Title text="Trade Demands" level="H3" class="tcSectionTitle"/>
+                                    <HTML content="&lt;hr class='tcHrThin'/&gt;"/>
+                                </VBox>
+
+                                <!-- Horizontally scrollable table -->
+                                <ScrollContainer id="tradeDemandScroll"
+                                                 horizontal="true"
+                                                 vertical="false"
+                                                 width="100%"
+                                                 class="tcTableScrollContainer">
+                                    <Table id="tradeDemandTable"
+                                           fixedLayout="false"
+                                           width="auto"
+                                           class="tcTradeDemandTable"
+                                           noDataText="No trade demand line items">
+
+                                        <columns>
+                                            <Column width="13rem" demandPopin="false" minScreenWidth="Desktop">
+                                                <Text text="Trade Category"/>
+                                            </Column>
+                                            <Column width="10rem" demandPopin="false" minScreenWidth="Desktop">
+                                                <Text text="Customer No"/>
+                                            </Column>
+                                            <Column width="13rem" demandPopin="false" minScreenWidth="Desktop">
+                                                <Text text="Customer Name"/>
+                                            </Column>
+                                            <Column width="9rem" demandPopin="false" minScreenWidth="Desktop" hAlign="End">
+                                                <Text text="Quantity (MT)"/>
+                                            </Column>
+                                            <Column width="9rem" demandPopin="false" minScreenWidth="Desktop" hAlign="End">
+                                                <Text text="Quantity (Ltrs)"/>
+                                            </Column>
+                                            <Column width="11rem" demandPopin="false" minScreenWidth="Desktop" hAlign="End">
+                                                <Text text="PO/Offer Letter Price"/>
+                                            </Column>
+                                            <Column width="12rem" demandPopin="false" minScreenWidth="Desktop">
+                                                <Text text="Point of Delivery"/>
+                                            </Column>
+                                            <Column width="13rem" demandPopin="false" minScreenWidth="Desktop">
+                                                <Text text="Quality Specification"/>
+                                            </Column>
+                                            <Column width="14rem" demandPopin="false" minScreenWidth="Desktop">
+                                                <Text text="Quantity Determination"/>
+                                            </Column>
+                                            <Column width="11rem" demandPopin="false" minScreenWidth="Desktop">
+                                                <Text text="Acceptance Date"/>
+                                            </Column>
+                                            <Column width="14rem" demandPopin="false" minScreenWidth="Desktop">
+                                                <Text text="Scanned PO/Offer Letter"/>
+                                            </Column>
+                                            <Column width="13rem" demandPopin="false" minScreenWidth="Desktop">
+                                                <Text text="Scanned PO/Offer URL"/>
+                                            </Column>
+                                            <Column width="10rem" demandPopin="false" minScreenWidth="Desktop">
+                                                <Text text="Delivery Mode"/>
+                                            </Column>
+                                            <Column width="11rem" demandPopin="false" minScreenWidth="Desktop">
+                                                <Text text="Transaction Type"/>
+                                            </Column>
+                                            <Column width="13rem" demandPopin="false" minScreenWidth="Desktop">
+                                                <Text text="Third Party Vendor No"/>
+                                            </Column>
+                                            <Column width="11rem" demandPopin="false" minScreenWidth="Desktop" hAlign="End">
+                                                <Text text="Finance Arrangement (%)"/>
+                                            </Column>
+                                            <Column width="11rem" demandPopin="false" minScreenWidth="Desktop" hAlign="End">
+                                                <Text text="Commission (₦/Ltr)"/>
+                                            </Column>
+                                            <Column width="13rem" demandPopin="false" minScreenWidth="Desktop" hAlign="End">
+                                                <Text text="Profit Sharing (% Net Profit)"/>
+                                            </Column>
+                                        </columns>
+
+                                        <items>
+                                            <!-- Single line item — static row (no list binding) -->
+                                            <ColumnListItem>
+                                                <cells>
+
+                                                    <!-- Trade Category -->
+                                                    <Select selectedKey="{tradeCard>/tradeDemands/0/tradeCategory}"
+                                                            change="onTradeCategoryChange"
+                                                            width="12rem">
+                                                        <items>
+                                                            <core:Item key="" text="-- Select --"/>
+                                                            <core:Item key="OPEN_MARKET" text="Open Market"/>
+                                                            <core:Item key="CONFIRMED_ORDER" text="Confirmed Order"/>
+                                                        </items>
+                                                    </Select>
+
+                                                    <!-- Customer No -->
+                                                    <Input value="{tradeCard>/tradeDemands/0/customerNo}"
+                                                           placeholder="Customer No"
+                                                           width="9rem"/>
+
+                                                    <!-- Customer Name — enabled only for Confirmed Order -->
+                                                    <Input value="{tradeCard>/tradeDemands/0/customerName}"
+                                                           placeholder="Customer Name"
+                                                           enabled="{= ${tradeCard>/tradeDemands/0/tradeCategory} === 'CONFIRMED_ORDER'}"
+                                                           valueState="{= ${tradeCard>/tradeDemands/0/tradeCategory} === 'CONFIRMED_ORDER' ? 'None' : 'None'}"
+                                                           class="{= ${tradeCard>/tradeDemands/0/tradeCategory} !== 'CONFIRMED_ORDER' ? 'tcFieldGreyed' : ''}"
+                                                           width="12rem"/>
+
+                                                    <!-- Quantity MT -->
+                                                    <Input type="Number"
+                                                           value="{tradeCard>/tradeDemands/0/quantityMT}"
+                                                           placeholder="0"
+                                                           textAlign="End"
+                                                           width="8rem"/>
+
+                                                    <!-- Quantity Ltrs -->
+                                                    <Input type="Number"
+                                                           value="{tradeCard>/tradeDemands/0/quantityLtrs}"
+                                                           placeholder="0"
+                                                           textAlign="End"
+                                                           width="8rem"/>
+
+                                                    <!-- PO/Offer Letter Price -->
+                                                    <Input type="Number"
+                                                           value="{tradeCard>/tradeDemands/0/poPrice}"
+                                                           placeholder="0.00"
+                                                           textAlign="End"
+                                                           width="10rem"/>
+
+                                                    <!-- Point of Delivery -->
+                                                    <Input value="{tradeCard>/tradeDemands/0/pointOfDelivery}"
+                                                           placeholder="Point of delivery"
+                                                           width="11rem"/>
+
+                                                    <!-- Quality Specification -->
+                                                    <Input value="{tradeCard>/tradeDemands/0/qualitySpec}"
+                                                           placeholder="Quality spec"
+                                                           width="12rem"/>
+
+                                                    <!-- Quantity Determination -->
+                                                    <Input value="{tradeCard>/tradeDemands/0/quantityDetermination}"
+                                                           placeholder="Qty determination"
+                                                           width="13rem"/>
+
+                                                    <!-- Acceptance Date -->
+                                                    <DatePicker value="{tradeCard>/tradeDemands/0/acceptanceDate}"
+                                                                valueFormat="yyyy-MM-dd"
+                                                                displayFormat="dd MMM yyyy"
+                                                                placeholder="Select date"
+                                                                width="10rem"/>
+
+                                                    <!-- Scanned PO/Offer Letter -->
+                                                    <Input value="{tradeCard>/tradeDemands/0/scannedPO}"
+                                                           placeholder="File reference"
+                                                           width="13rem"/>
+
+                                                    <!-- Scanned PO/Offer URL -->
+                                                    <Input value="{tradeCard>/tradeDemands/0/scannedPOUrl}"
+                                                           placeholder="https://"
+                                                           width="12rem"/>
+
+                                                    <!-- Delivery Mode -->
+                                                    <Select selectedKey="{tradeCard>/tradeDemands/0/deliveryMode}"
+                                                            width="9rem">
+                                                        <items>
+                                                            <core:Item key="" text="-- Select --"/>
+                                                            <core:Item key="TANK_FARM" text="Tank Farm"/>
+                                                            <core:Item key="OFFSHORE" text="Offshore"/>
+                                                        </items>
+                                                    </Select>
+
+                                                    <!-- Transaction Type -->
+                                                    <Select selectedKey="{tradeCard>/tradeDemands/0/transactionType}"
+                                                            width="10rem">
+                                                        <items>
+                                                            <core:Item key="" text="-- Select --"/>
+                                                            <core:Item key="DIRECT" text="Direct"/>
+                                                            <core:Item key="INDIRECT" text="Indirect"/>
+                                                        </items>
+                                                    </Select>
+
+                                                    <!-- Third Party Vendor No -->
+                                                    <Input value="{tradeCard>/tradeDemands/0/thirdPartyVendorNo}"
+                                                           placeholder="Vendor No"
+                                                           width="12rem"/>
+
+                                                    <!-- Finance Arrangement % -->
+                                                    <Input type="Number"
+                                                           value="{tradeCard>/tradeDemands/0/financeArrangement}"
+                                                           placeholder="0.00"
+                                                           textAlign="End"
+                                                           width="10rem"/>
+
+                                                    <!-- Commission N/Ltr -->
+                                                    <Input type="Number"
+                                                           value="{tradeCard>/tradeDemands/0/commission}"
+                                                           placeholder="0.00"
+                                                           textAlign="End"
+                                                           width="10rem"/>
+
+                                                    <!-- Profit Sharing % Net Profit -->
+                                                    <Input type="Number"
+                                                           value="{tradeCard>/tradeDemands/0/profitSharing}"
+                                                           placeholder="0.00"
+                                                           textAlign="End"
+                                                           width="12rem"/>
+
+                                                </cells>
+                                            </ColumnListItem>
+                                        </items>
+
+                                    </Table>
+                                </ScrollContainer>
+
+                                <!-- ════════════════════════════════════════════
+                                     SECTION 3 — SUPPLIES CONTRACT / MOU / PFI
+                                     ════════════════════════════════════════════ -->
+                                <VBox class="tcSectionHeaderBox tcSectionSpacingTop">
+                                    <Title text="Supplies Contract or MOU/PFI Details"
+                                           level="H3"
+                                           class="tcSectionTitle"/>
+                                    <HTML content="&lt;hr class='tcHrMedium'/&gt;"/>
+                                </VBox>
+
+                                <!-- Two-column layout using HBox -->
+                                <HBox wrap="Wrap" class="tcSuppliesContainer">
+
+                                    <!-- ── LEFT COLUMN ────────────────────── -->
+                                    <VBox class="tcSuppliesColumn tcSuppliesColumnLeft">
+
+                                        <!-- Sourcing & FX Fields -->
+                                        <form:SimpleForm id="sourcingForm"
+                                                         editable="true"
+                                                         layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6"
+                                                         labelSpanL="6"
+                                                         labelSpanM="4"
+                                                         labelSpanS="12"
+                                                         adjustLabelSpan="false"
+                                                         class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Sourcing Type"/>
+                                                <Select selectedKey="{tradeCard>/sourcingType}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select --"/>
+                                                        <core:Item key="IMPORT" text="Import"/>
+                                                        <core:Item key="COASTAL" text="Coastal"/>
+                                                        <core:Item key="SWAP" text="Swap"/>
+                                                        <core:Item key="EX_DEPOT" text="Ex-Depot"/>
+                                                    </items>
+                                                </Select>
+
+                                                <Label text="Quality Cost %"/>
+                                                <Input type="Number" value="{tradeCard>/qualityCostPct}" placeholder="0" width="100%"/>
+
+                                                <Label text="Common FX Rate — Interbank"/>
+                                                <Input type="Number" value="{tradeCard>/fxRateInterbank}" placeholder="0" width="100%"/>
+
+                                                <Label text="Common FX Rate — Parallel"/>
+                                                <Input type="Number" value="{tradeCard>/fxRateParallel}" placeholder="0" width="100%"/>
+
+                                                <Label text="Premium Insurance"/>
+                                                <Input type="Number" value="{tradeCard>/premiumInsurance}" placeholder="0.00" width="100%"/>
+
+                                                <Label text="Bank Common Rate"/>
+                                                <Input type="Number" value="{tradeCard>/bankCommonRate}" placeholder="0.00" width="100%"/>
+
+                                                <Label text="Confirmation Charges %"/>
+                                                <Input type="Number" value="{tradeCard>/confirmationChargesPct}" placeholder="0" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- Sub-section: PRODUCT COST ESTIMATE -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="PRODUCT COST ESTIMATE" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm id="productCostForm"
+                                                         editable="true"
+                                                         layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6"
+                                                         labelSpanL="6"
+                                                         labelSpanM="4"
+                                                         labelSpanS="12"
+                                                         adjustLabelSpan="false"
+                                                         class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Prod. Price/MT (Ice/Plat) — USD"/>
+                                                <Input type="Number" value="{tradeCard>/prodPriceIcePlat}" placeholder="0.00" width="100%"/>
+
+                                                <Label text="Prod. Price/MT (Premium) — USD"/>
+                                                <Input type="Number" value="{tradeCard>/prodPricePremium}" placeholder="0.00" width="100%"/>
+
+                                                <Label text="Proposed Product Cost FX Rate"/>
+                                                <Input type="Number" value="{tradeCard>/proposedCostFXRate}" placeholder="0.00" width="100%"/>
+
+                                                <Label text="Total Product Cost (USD)"/>
+                                                <Input type="Number" value="{tradeCard>/totalProductCostUSD}" placeholder="0.00" width="100%"/>
+
+                                                <Label text="Coastal Margin %"/>
+                                                <Input type="Number" value="{tradeCard>/coastalMarginPct}" placeholder="0.00" width="100%"/>
+
+                                                <Label text="Coastal Margin Cost"/>
+                                                <Input type="Number" value="{tradeCard>/coastalMarginCost}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- Sub-section: IMPORT -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="IMPORT" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm id="importForm"
+                                                         editable="true"
+                                                         layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6"
+                                                         labelSpanL="6"
+                                                         labelSpanM="4"
+                                                         labelSpanS="12"
+                                                         adjustLabelSpan="false"
+                                                         class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Trade Price Reference"/>
+                                                <Select selectedKey="{tradeCard>/tradePriceReference}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select --"/>
+                                                        <core:Item key="ICE_BRENT" text="ICE Brent"/>
+                                                        <core:Item key="ICE_GASOIL" text="ICE Gasoil"/>
+                                                        <core:Item key="PLATTS" text="Platts"/>
+                                                        <core:Item key="ARGUS" text="Argus"/>
+                                                    </items>
+                                                </Select>
+
+                                                <Label text="Trade Price"/>
+                                                <Select selectedKey="{tradeCard>/tradePrice}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select --"/>
+                                                        <core:Item key="FRONT_MONTH" text="Front Month"/>
+                                                        <core:Item key="SPOT_MONTH" text="Spot Month"/>
+                                                        <core:Item key="FIXED" text="Fixed Price"/>
+                                                    </items>
+                                                </Select>
+
+                                                <Label text="Premium/Discount"/>
+                                                <Input type="Number" value="{tradeCard>/premiumDiscount}" placeholder="0.00" width="100%"/>
+
+                                                <Label text="Add Rollover"/>
+                                                <Switch state="{tradeCard>/addRollover}"
+                                                        customTextOn="Yes"
+                                                        customTextOff="No"/>
+
+                                                <Label text="Price Month"/>
+                                                <Select selectedKey="{tradeCard>/priceMonth}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select --"/>
+                                                        <core:Item key="JAN" text="January"/>
+                                                        <core:Item key="FEB" text="February"/>
+                                                        <core:Item key="MAR" text="March"/>
+                                                        <core:Item key="APR" text="April"/>
+                                                        <core:Item key="MAY" text="May"/>
+                                                        <core:Item key="JUN" text="June"/>
+                                                        <core:Item key="JUL" text="July"/>
+                                                        <core:Item key="AUG" text="August"/>
+                                                        <core:Item key="SEP" text="September"/>
+                                                        <core:Item key="OCT" text="October"/>
+                                                        <core:Item key="NOV" text="November"/>
+                                                        <core:Item key="DEC" text="December"/>
+                                                    </items>
+                                                </Select>
+
+                                                <Label text="Trade Pricing Period"/>
+                                                <Input value="{tradeCard>/tradePricingPeriod}"
+                                                       placeholder="e.g. 01 Jan — 31 Jan 2026"
+                                                       width="100%"/>
+
+                                                <Label text="Payment Mode"/>
+                                                <Select selectedKey="{tradeCard>/paymentMode}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select --"/>
+                                                        <core:Item key="LC" text="LC — Letter of Credit"/>
+                                                        <core:Item key="BG" text="Bank Guarantee"/>
+                                                        <core:Item key="TT" text="TT — Wire Transfer"/>
+                                                        <core:Item key="CAD" text="Cash Against Documents"/>
+                                                        <core:Item key="OPEN" text="Open Account"/>
+                                                    </items>
+                                                </Select>
+
+                                                <Label text="Incoterm"/>
+                                                <Select selectedKey="{tradeCard>/incoterm}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select --"/>
+                                                        <core:Item key="CFR" text="CFR — Cost and Freight"/>
+                                                        <core:Item key="CIF" text="CIF — Cost, Insurance and Freight"/>
+                                                        <core:Item key="FOB" text="FOB — Free On Board"/>
+                                                        <core:Item key="DAP" text="DAP — Delivered at Place"/>
+                                                        <core:Item key="DDP" text="DDP — Delivered Duty Paid"/>
+                                                        <core:Item key="EXW" text="EXW — Ex Works"/>
+                                                    </items>
+                                                </Select>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                    </VBox><!-- END LEFT COLUMN -->
+
+                                    <!-- ── RIGHT COLUMN ───────────────────── -->
+                                    <VBox class="tcSuppliesColumn tcSuppliesColumnRight">
+
+                                        <!-- Sub-section: CONTRACT (SPA/SQ) -->
+                                        <VBox class="tcSubSectionLabelBox tcSubSectionLabelBoxFirst">
+                                            <Title text="CONTRACT (SPA/SQ)" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm id="contractForm"
+                                                         editable="true"
+                                                         layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6"
+                                                         labelSpanL="6"
+                                                         labelSpanM="4"
+                                                         labelSpanS="12"
+                                                         adjustLabelSpan="false"
+                                                         class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Supplier Code"/>
+                                                <Input value="{tradeCard>/supplierCode}"
+                                                       placeholder="Enter supplier code"
+                                                       width="100%"/>
+
+                                                <Label text="Supplier Name"/>
+                                                <Input value="{tradeCard>/supplierName}"
+                                                       placeholder="Enter supplier name"
+                                                       width="100%"/>
+
+                                                <Label text="Credit Term"/>
+                                                <Input value="{tradeCard>/creditTerm}"
+                                                       placeholder="e.g. 30 days"
+                                                       width="100%"/>
+
+                                                <Label text="Supplier Contract Ref"/>
+                                                <Input value="{tradeCard>/supplierContractRef}"
+                                                       placeholder="Enter contract reference"
+                                                       width="100%"/>
+
+                                                <Label text="Contract Qty"/>
+                                                <Input type="Number"
+                                                       value="{tradeCard>/contractQty}"
+                                                       placeholder="0"
+                                                       width="100%"/>
+
+                                                <Label text="Tolerance"/>
+                                                <Input type="Number"
+                                                       value="{tradeCard>/tolerance}"
+                                                       placeholder="0"
+                                                       width="100%"/>
+
+                                                <Label text="Trade Pricing"/>
+                                                <Select selectedKey="{tradeCard>/tradePricingContract}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select --"/>
+                                                        <core:Item key="FIXED" text="Fixed"/>
+                                                        <core:Item key="FLOATING" text="Floating"/>
+                                                        <core:Item key="FORMULA" text="Formula Based"/>
+                                                    </items>
+                                                </Select>
+
+                                                <Label text="Currency of Transaction"/>
+                                                <Input value="{tradeCard>/currencyOfTransaction}"
+                                                       placeholder="USD"
+                                                       width="100%"/>
+
+                                                <Label text="Load Port"/>
+                                                <Select selectedKey="{tradeCard>/loadPort}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select --"/>
+                                                        <core:Item key="APAPA" text="Apapa, Lagos"/>
+                                                        <core:Item key="WARRI" text="Warri"/>
+                                                        <core:Item key="PHC" text="Port Harcourt"/>
+                                                        <core:Item key="ROTTERDAM" text="Rotterdam"/>
+                                                        <core:Item key="FREEPORT" text="Freeport, Bahamas"/>
+                                                        <core:Item key="OTHER" text="Other"/>
+                                                    </items>
+                                                </Select>
+
+                                                <Label text="Laycan Start Date"/>
+                                                <DatePicker value="{tradeCard>/laycanStartDate}"
+                                                            valueFormat="yyyy-MM-dd"
+                                                            displayFormat="dd MMM yyyy"
+                                                            placeholder="Select date"
+                                                            width="100%"/>
+
+                                                <Label text="Laycan End Date"/>
+                                                <DatePicker value="{tradeCard>/laycanEndDate}"
+                                                            valueFormat="yyyy-MM-dd"
+                                                            displayFormat="dd MMM yyyy"
+                                                            placeholder="Select date"
+                                                            width="100%"/>
+
+                                                <Label text="Laytime"/>
+                                                <Input value="{tradeCard>/laytime}"
+                                                       placeholder="e.g. 36 hours SHINC"
+                                                       width="100%"/>
+
+                                                <Label text="Demurrage Rate"/>
+                                                <Input value="{tradeCard>/demurrageRate}"
+                                                       placeholder="e.g. USD 15,000/day"
+                                                       width="100%"/>
+
+                                                <Label text="STS Cost (% of Buyer Account)"/>
+                                                <Input type="Number"
+                                                       value="{tradeCard>/stsCostPct}"
+                                                       placeholder="0.00"
+                                                       width="100%"/>
+
+                                                <Label text="Inspection Fees"/>
+                                                <Input type="Number"
+                                                       value="{tradeCard>/inspectionFees}"
+                                                       placeholder="0.00"
+                                                       width="100%"/>
+
+                                                <Label text="Send for Operation"/>
+                                                <Switch state="{tradeCard>/sendForOperation}"
+                                                        customTextOn="Yes"
+                                                        customTextOff="No"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                    </VBox><!-- END RIGHT COLUMN -->
+
+                                </HBox><!-- END SUPPLIES CONTAINER -->
+
+
+                                <!-- ════════════════════════════════════════════
+                                     SECTION 4 — OPERATIONS LOGISTICS BUDGET
+                                     ════════════════════════════════════════════ -->
+                                <VBox class="tcSectionHeaderBox tcSectionSpacingTop">
+                                    <Title text="Operations Logistics Budget" level="H3" class="tcSectionTitle"/>
+                                    <HTML content="&lt;hr class='tcHrMedium'/&gt;"/>
+                                </VBox>
+
+                                <HBox wrap="Wrap" class="tcSuppliesContainer">
+
+                                    <!-- ══ LEFT COLUMN ════════════════════════════ -->
+                                    <VBox class="tcSuppliesColumn tcSuppliesColumnLeft">
+
+                                        <!-- ── FREIGHT COST ──────────────────── -->
+                                        <VBox class="tcSubSectionLabelBox tcSubSectionLabelBoxFirst">
+                                            <Title text="FREIGHT COST" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Freight Vendor"/>
+                                                <Select selectedKey="{tradeCard>/opsLogistics/freightVendor}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select Vendor --"/>
+                                                        <core:Item key="V001" text="Nordic Tankers AS"/>
+                                                        <core:Item key="V002" text="Stolt Tankers BV"/>
+                                                        <core:Item key="V003" text="Ardmore Shipping"/>
+                                                        <core:Item key="V004" text="Navig8 Group"/>
+                                                        <core:Item key="V005" text="Other"/>
+                                                    </items>
+                                                </Select>
+                                                <Label text="Freight Vendor Name"/>
+                                                <Input value="{tradeCard>/opsLogistics/freightVendorName}" placeholder="Enter vendor name" width="100%"/>
+                                                <Label text="Freight Cost FX Rate"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/freightCostFXRate}" placeholder="0.00" width="100%"/>
+                                                <Label text="Estimated Freight Days"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/estimatedFreightDays}" placeholder="0" width="100%"/>
+                                                <Label text="Estimated Daily Freight Cost (USD)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/estDailyFreightCostUSD}" placeholder="0.00" width="100%"/>
+                                                <Label text="Freight Total Cost"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/freightTotalCost}" placeholder="0.00" width="100%"/>
+                                                <Label text="Freight Total Cost (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/freightTotalCostNGN}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- ── LAYCAN & DEMURRAGE COST ────────── -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="LAYCAN &amp; DEMURRAGE COST" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Estimated Laycan Start Date"/>
+                                                <DatePicker value="{tradeCard>/opsLogistics/estLaycanStartDate}" valueFormat="yyyy-MM-dd" displayFormat="dd MMM yyyy" placeholder="Select date" width="100%"/>
+                                                <Label text="Estimated Laycan End Date"/>
+                                                <DatePicker value="{tradeCard>/opsLogistics/estLaycanEndDate}" valueFormat="yyyy-MM-dd" displayFormat="dd MMM yyyy" placeholder="Select date" width="100%"/>
+                                                <Label text="Estimated Laycan Duration (HRS)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/estLaycanDurationHRS}" placeholder="0" width="100%"/>
+                                                <Label text="Estimated Demurrage Days"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/estDemurrageDays}" placeholder="0" width="100%"/>
+                                                <Label text="Demurrage FX Rate"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/demurrageFXRate}" placeholder="0.00" width="100%"/>
+                                                <Label text="Est. Demurrage Daily Cost (USD)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/estDemurrageDailyCostUSD}" placeholder="0.00" width="100%"/>
+                                                <Label text="Total Demurrage Cost (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/totalDemurrageCostNGN}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- ── BUNKER ────────────────────────── -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="BUNKER" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Bunker Cost (USD)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/bunkerCostUSD}" placeholder="0.00" width="100%"/>
+                                                <Label text="Bunker Cost (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/bunkerCostNGN}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- ── PREMIUM ───────────────────────── -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="PREMIUM" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Premium Cost (USD)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/premiumCostUSD}" placeholder="0.00" width="100%"/>
+                                                <Label text="Premium Cost (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/premiumCostNGN}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- ── AGENCIES COST — LOAD PORT ──────── -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="AGENCIES COST — LOAD PORT" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Agencies Vendor"/>
+                                                <Select selectedKey="{tradeCard>/opsLogistics/agenciesVendorLoad}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select Vendor --"/>
+                                                        <core:Item key="A001" text="Stolt Nielsen"/>
+                                                        <core:Item key="A002" text="GAC Shipping Nigeria"/>
+                                                        <core:Item key="A003" text="Wilhelmsen Ship Services"/>
+                                                        <core:Item key="A004" text="Inchcape Shipping"/>
+                                                        <core:Item key="A005" text="Other"/>
+                                                    </items>
+                                                </Select>
+                                                <Label text="Agencies Vendor Name — Load Port"/>
+                                                <Input value="{tradeCard>/opsLogistics/agenciesVendorNameLoad}" placeholder="Enter vendor name" width="100%"/>
+                                                <Label text="Agencies Cost Load Port FX Rate (USD)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/agenciesCostLoadFXRate}" placeholder="0.00" width="100%"/>
+                                                <Label text="Agencies Cost Load Port (USD)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/agenciesCostLoadUSD}" placeholder="0.00" width="100%"/>
+                                                <Label text="Agencies Load Port NGN Leg"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/agenciesLoadNGNLeg}" placeholder="0.00" width="100%"/>
+                                                <Label text="Agencies Load Port Total (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/agenciesLoadTotal}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- ── AGENCIES COST — DISCHARGE ─────── -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="AGENCIES COST — DISCHARGE" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Agency Vendor — Discharge Port"/>
+                                                <Select selectedKey="{tradeCard>/opsLogistics/agencyVendorDischarge}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select Vendor --"/>
+                                                        <core:Item key="A001" text="Stolt Nielsen"/>
+                                                        <core:Item key="A002" text="GAC Shipping Nigeria"/>
+                                                        <core:Item key="A003" text="Wilhelmsen Ship Services"/>
+                                                        <core:Item key="A004" text="Inchcape Shipping"/>
+                                                        <core:Item key="A005" text="Other"/>
+                                                    </items>
+                                                </Select>
+                                                <Label text="Agency Vendor Name — Disc Port"/>
+                                                <Input value="{tradeCard>/opsLogistics/agencyVendorNameDischarge}" placeholder="Enter vendor name" width="100%"/>
+                                                <Label text="Agencies Cost Disc Port (USD)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/agenciesCostDiscUSD}" placeholder="0.00" width="100%"/>
+                                                <Label text="Agencies Cost Disc Port FX Rate"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/agenciesCostDiscFXRate}" placeholder="0.00" width="100%"/>
+                                                <Label text="Agencies Disc Port Total"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/agenciesDiscTotal}" placeholder="0.00" width="100%"/>
+                                                <Label text="Agencies Disc Port NGN Leg"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/agenciesDiscNGNLeg}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- ── STORAGE COST ──────────────────── -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="STORAGE COST" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Storage Vendor"/>
+                                                <Select selectedKey="{tradeCard>/opsLogistics/storageVendor}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select Vendor --"/>
+                                                        <core:Item key="S001" text="NIPCO Plc"/>
+                                                        <core:Item key="S002" text="Oando Terminals"/>
+                                                        <core:Item key="S003" text="Atlas Cove"/>
+                                                        <core:Item key="S004" text="Warri Refinery Terminal"/>
+                                                        <core:Item key="S005" text="Other"/>
+                                                    </items>
+                                                </Select>
+                                                <Label text="Storage Vendor Name"/>
+                                                <Input value="{tradeCard>/opsLogistics/storageVendorName}" placeholder="Enter vendor name" width="100%"/>
+                                                <Label text="Storage Rate Per Ltr"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/storageRatePerLtr}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- ── TRADE FINANCING (Accordion Panel) ─ -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                        </VBox>
+                                        <Panel id="tradeFinancingPanel"
+                                               headerText="Trade Financing"
+                                               expandable="true"
+                                               expanded="{tradeCard>/opsLogistics/tradeFinancingExpanded}"
+                                               class="tcAccordionPanel">
+                                            <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                             labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                             adjustLabelSpan="false" class="tcSubForm tcAccordionForm">
+                                                <form:content>
+                                                    <Label text="SPA/Allocation"/>
+                                                    <Input value="{tradeCard>/opsLogistics/spaAllocation}" placeholder="Enter SPA or allocation reference" width="100%"/>
+                                                    <Label text="Proforma Invoice"/>
+                                                    <Input value="{tradeCard>/opsLogistics/proformaInvoice}" placeholder="Enter proforma invoice reference" width="100%"/>
+                                                    <Label text="Form-M Exists"/>
+                                                    <Switch state="{tradeCard>/opsLogistics/formMExists}" customTextOn="Yes" customTextOff="No"/>
+                                                    <Label text="LC/BC Exists"/>
+                                                    <Switch state="{tradeCard>/opsLogistics/lcBCExists}" customTextOn="Yes" customTextOff="No"/>
+                                                </form:content>
+                                            </form:SimpleForm>
+                                        </Panel>
+
+                                        <!-- ── INSURANCE COSTS ───────────────── -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="INSURANCE COSTS" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Insurance Vendor"/>
+                                                <Select selectedKey="{tradeCard>/opsLogistics/insuranceVendor}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select Vendor --"/>
+                                                        <core:Item key="I001" text="AIG Nigeria"/>
+                                                        <core:Item key="I002" text="Leadway Assurance"/>
+                                                        <core:Item key="I003" text="Aiico Insurance"/>
+                                                        <core:Item key="I004" text="NEM Insurance"/>
+                                                        <core:Item key="I005" text="Other"/>
+                                                    </items>
+                                                </Select>
+                                                <Label text="Insurance Vendor Name"/>
+                                                <Input value="{tradeCard>/opsLogistics/insuranceVendorName}" placeholder="Enter vendor name" width="100%"/>
+                                                <Label text="Insurance Cost"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/insuranceCost}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                    </VBox><!-- END LEFT COLUMN -->
+
+                                    <!-- ══ RIGHT COLUMN ═══════════════════════════ -->
+                                    <VBox class="tcSuppliesColumn tcSuppliesColumnRight">
+
+                                        <!-- ── JETTY COST ────────────────────── -->
+                                        <VBox class="tcSubSectionLabelBox tcSubSectionLabelBoxFirst">
+                                            <Title text="JETTY COST" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Jetty Depot Vendor"/>
+                                                <Select selectedKey="{tradeCard>/opsLogistics/jettyDepotVendor}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select Vendor --"/>
+                                                        <core:Item key="J001" text="Apapa Jetty Operators"/>
+                                                        <core:Item key="J002" text="Atlas Cove Jetty"/>
+                                                        <core:Item key="J003" text="Warri Port Authority"/>
+                                                        <core:Item key="J004" text="PHC Jetty Terminal"/>
+                                                        <core:Item key="J005" text="Other"/>
+                                                    </items>
+                                                </Select>
+                                                <Label text="Jetty Vendor Name"/>
+                                                <Input value="{tradeCard>/opsLogistics/jettyVendorName}" placeholder="Enter vendor name" width="100%"/>
+                                                <Label text="Jetty Depot Cost (USD)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/jettyDepotCostUSD}" placeholder="0.00" width="100%"/>
+                                                <Label text="Jetty Depot Cost FX Rate"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/jettyDepotCostFXRate}" placeholder="0.00" width="100%"/>
+                                                <Label text="Jetty Depot Cost"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/jettyDepotCost}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- ── SURVEYOR COST ──────────────────── -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="SURVEYOR COST" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Load Port Surveyor"/>
+                                                <Select selectedKey="{tradeCard>/opsLogistics/loadPortSurveyor}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select Vendor --"/>
+                                                        <core:Item key="SV001" text="SGS Nigeria"/>
+                                                        <core:Item key="SV002" text="Bureau Veritas"/>
+                                                        <core:Item key="SV003" text="Intertek Nigeria"/>
+                                                        <core:Item key="SV004" text="Saybolt Nigeria"/>
+                                                        <core:Item key="SV005" text="Other"/>
+                                                    </items>
+                                                </Select>
+                                                <Label text="Load Port Surveyor Name"/>
+                                                <Input value="{tradeCard>/opsLogistics/loadPortSurveyorName}" placeholder="Enter surveyor name" width="100%"/>
+                                                <Label text="Load Port Surveyor Cost (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/loadPortSurveyorCostNGN}" placeholder="0.00" width="100%"/>
+                                                <Label text="Dis Port Surveyor"/>
+                                                <Select selectedKey="{tradeCard>/opsLogistics/disPortSurveyor}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select Vendor --"/>
+                                                        <core:Item key="SV001" text="SGS Nigeria"/>
+                                                        <core:Item key="SV002" text="Bureau Veritas"/>
+                                                        <core:Item key="SV003" text="Intertek Nigeria"/>
+                                                        <core:Item key="SV004" text="Saybolt Nigeria"/>
+                                                        <core:Item key="SV005" text="Other"/>
+                                                    </items>
+                                                </Select>
+                                                <Label text="Dis Port Surveyor Name"/>
+                                                <Input value="{tradeCard>/opsLogistics/disPortSurveyorName}" placeholder="Enter surveyor name" width="100%"/>
+                                                <Label text="Total Surveying Cost"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/totalSurveyingCost}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- ── STS/FENDERING COST ────────────── -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="STS/FENDERING COST" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="STS/Fendering Vendor Name"/>
+                                                <Input value="{tradeCard>/opsLogistics/stsFenderingVendorName}" placeholder="Enter vendor name" width="100%"/>
+                                                <Label text="STS/Fendering Cost (USD)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/stsFenderingCostUSD}" placeholder="0.00" width="100%"/>
+                                                <Label text="STS/Fendering Cost FX Rate"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/stsFenderingCostFXRate}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- ── QUALITY COST ───────────────────── -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="QUALITY COST" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Load Port Quality Vendor"/>
+                                                <Select selectedKey="{tradeCard>/opsLogistics/loadPortQualityVendor}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select Vendor --"/>
+                                                        <core:Item key="Q001" text="SGS Nigeria"/>
+                                                        <core:Item key="Q002" text="Bureau Veritas"/>
+                                                        <core:Item key="Q003" text="Intertek Nigeria"/>
+                                                        <core:Item key="Q004" text="Saybolt Nigeria"/>
+                                                        <core:Item key="Q005" text="Other"/>
+                                                    </items>
+                                                </Select>
+                                                <Label text="Load Port Quality Vendor Name"/>
+                                                <Input value="{tradeCard>/opsLogistics/loadPortQualityVendorName}" placeholder="Enter vendor name" width="100%"/>
+                                                <Label text="Load Port Quality Cost"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/loadPortQualityCost}" placeholder="0.00" width="100%"/>
+                                                <Label text="Dis Port Quality Vendor"/>
+                                                <Select selectedKey="{tradeCard>/opsLogistics/disPortQualityVendor}" width="100%">
+                                                    <items>
+                                                        <core:Item key="" text="-- Select Vendor --"/>
+                                                        <core:Item key="Q001" text="SGS Nigeria"/>
+                                                        <core:Item key="Q002" text="Bureau Veritas"/>
+                                                        <core:Item key="Q003" text="Intertek Nigeria"/>
+                                                        <core:Item key="Q004" text="Saybolt Nigeria"/>
+                                                        <core:Item key="Q005" text="Other"/>
+                                                    </items>
+                                                </Select>
+                                                <Label text="Dis Port Quality Vendor Name"/>
+                                                <Input value="{tradeCard>/opsLogistics/disPortQualityVendorName}" placeholder="Enter vendor name" width="100%"/>
+                                                <Label text="Dis Port Quality Cost (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/disPortQualityCostNGN}" placeholder="0.00" width="100%"/>
+                                                <Label text="Total Quality Cost"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/totalQualityCost}" placeholder="0.00" width="100%"/>
+                                                <Label text="DPR Cost (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/dprCostNGN}" placeholder="0.00" width="100%"/>
+                                                <Label text="DPR Licences/Permits Validity"/>
+                                                <Input value="{tradeCard>/opsLogistics/dprLicencesPermitsValidity}" placeholder="e.g. Valid until Dec 2026" width="100%"/>
+                                                <Label text="PEF Cost"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/pefCost}" placeholder="0.00" width="100%"/>
+                                                <Label text="PEF Charges Per Ltr (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/pefChargesPerLtrNGN}" placeholder="0.00" width="100%"/>
+                                                <Label text="Total PEF Charges (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/totalPEFChargesNGN}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- ── DISTRIBUTION MARGIN ────────────── -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="DISTRIBUTION MARGIN" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="PPPRA Charges"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/pppraCharges}" placeholder="0.00" width="100%"/>
+                                                <Label text="Total PPPRA Charges (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/totalPPPRAChargesNGN}" placeholder="0.00" width="100%"/>
+                                                <Label text="Bridging/MTA Cost (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/bridgingMTACostNGN}" placeholder="0.00" width="100%"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                        <!-- ── OTHER COSTS ────────────────────── -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="OTHER COSTS" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Discharge Logistics Cost (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/dischargeLogisticsCostNGN}" placeholder="0.00" width="100%"/>
+                                                <Label text="Badge and Fendering Cost"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/badgeFenderingCost}" placeholder="0.00" width="100%"/>
+                                                <Label text="Union Due Per Ltr"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/unionDuePerLtr}" placeholder="0.00" width="100%"/>
+                                                <Label text="Union Dues Cost (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/unionDuesCostNGN}" placeholder="0.00" width="100%"/>
+                                                <Label text="Other Operation Cost Desc"/>
+                                                <TextArea value="{tradeCard>/opsLogistics/otherOpCostDesc}"
+                                                          placeholder="Describe any additional operational costs"
+                                                          rows="3"
+                                                          growing="true"
+                                                          width="100%"/>
+                                                <Label text="Other Operation Cost Amount"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/otherOpCostAmount}" placeholder="0.00" width="100%"/>
+                                                <Label text="Total Logistics Cost"/>
+                                                <Input type="Number" value="{tradeCard>/opsLogistics/totalLogisticsCost}"
+                                                       placeholder="0.00"
+                                                       editable="false"
+                                                       class="tcReadOnlyTotal"
+                                                       width="100%"/>
+                                                <Label text="Send to Finance"/>
+                                                <Switch state="{tradeCard>/opsLogistics/sendToFinance}"
+                                                        customTextOn="Yes"
+                                                        customTextOff="No"
+                                                        change="onSendToFinanceChange"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
+                                    </VBox><!-- END RIGHT COLUMN -->
+
+                                </HBox><!-- END OPS LOGISTICS CONTAINER -->
+
+                                <!-- Bottom spacer -->
+                                <VBox class="tcBottomSpacer"/>
+
+                            </VBox><!-- END PROCESS CONTENT -->
+
+                        </IconTabFilter><!-- END PROCESS TAB -->
+
+                        <!-- Inactive tabs — visible but not interactive -->
+                        <IconTabFilter text="Report"        key="report"    enabled="false"/>
+                        <IconTabFilter text="Show Attached" key="attached"  enabled="false"/>
+                        <IconTabFilter text="More Options"  key="more"      enabled="false"/>
+
+                    </items>
+                </IconTabBar>
+
+            </VBox><!-- END CONTENT WRAPPER -->
+        </f:content>
+
+        <!-- ─── PAGE FOOTER ──────────────────────────────────────────────── -->
+        <f:footer>
+            <OverflowToolbar class="tcFooterBar">
+                <ToolbarSpacer/>
+                <Button text="Cancel"
+                        type="Transparent"
+                        press="onCancel"
+                        class="tcBtnCancel"/>
+                <Button text="Save"
+                        type="Emphasized"
+                        press="onSave"
+                        class="tcBtnSave"/>
+            </OverflowToolbar>
+        </f:footer>
+
+    </f:DynamicPage>
+
+</mvc:View>

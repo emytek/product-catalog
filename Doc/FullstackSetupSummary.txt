@@ -1,0 +1,520 @@
+================================================================================
+
+        PRODUCT CATALOG MANAGER
+        FULLSTACK SETUP & TESTING SUMMARY
+
+        Stack  : SAPUI5 Frontend + Node.js Backend + SAP HANA Cloud
+        Platform: SAP Business Technology Platform (BTP) — Cloud Foundry
+        Date   : March 2026
+
+================================================================================
+
+
+
+
+================================================================================
+PART A — HOW TO TEST THE FULLSTACK APP
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+A.1  BEFORE ANYTHING ELSE — Start the HANA Cloud Instance
+────────────────────────────────────────────────────────────────────────────────
+
+  Every time you want to work with the app (locally or on BTP), you must
+  first ensure the HANA Cloud database is running.
+
+  1. Open BTP Cockpit → your subaccount
+  2. Services → Instances and Subscriptions → Subscriptions tab
+  3. Click "Go to Application" on SAP HANA Cloud → opens HANA Cloud Central
+  4. Find the "trial-hana" instance
+  5. If status is "Stopped" → click ⋮ → Start
+  6. Wait for status: Running  (~3–5 minutes)
+
+  NOTE: On BTP trial, this instance auto-stops after inactivity.
+        Data is never lost — only the active connection drops.
+
+
+────────────────────────────────────────────────────────────────────────────────
+A.2  START THE BACKEND
+────────────────────────────────────────────────────────────────────────────────
+
+  Open a terminal in BAS or your local machine:
+
+    cd backend
+    npm run dev
+
+  Expected startup output:
+    [DB] Creating SAP HANA Cloud connection pool...
+    [DB] HANA pool connected → 1167cf49-xxxx.hanacloud.ondemand.com:443
+    [SERVER] Worker 1 listening on port 3000
+
+  If you see a connection error:
+    — Check that trial-hana is Running in HANA Cloud Central
+    — Verify backend/.env has the correct DB_HOST, DB_USER, DB_PASSWORD, DB_SCHEMA
+
+
+────────────────────────────────────────────────────────────────────────────────
+A.3  TEST BACKEND API ENDPOINTS
+────────────────────────────────────────────────────────────────────────────────
+
+  Use a browser, Postman, or curl to test each endpoint:
+
+  Health check (confirms database connectivity):
+    GET  http://localhost:3000/health
+    Expected: { "status": "ok", "database": true, "uptime": ..., "timestamp": ... }
+    If "database": false → HANA instance is stopped or credentials are wrong
+
+  Product catalog (used by home page):
+    GET  http://localhost:3000/api/v1/products/catalog
+    Expected: { "success": true, "data": { "products": [ ...25 items... ] } }
+
+  KPI stats (used by home dashboard tiles):
+    GET  http://localhost:3000/api/v1/products/stats
+    Expected: { "success": true, "data": { "totalProducts": 25, "activeProducts": 22, ... } }
+
+  Paginated product list:
+    GET  http://localhost:3000/api/v1/products?page=1&limit=10
+    Expected: 10 products, total: 25, page: 1
+
+  Single product:
+    GET  http://localhost:3000/api/v1/products/P001
+    Expected: full product object for P001
+
+  Search:
+    GET  http://localhost:3000/api/v1/products?search=laptop
+    Expected: products matching "laptop"
+
+  Filter by category:
+    GET  http://localhost:3000/api/v1/products?category=Electronics
+    Expected: only electronics products
+
+  Create a product (POST):
+    POST http://localhost:3000/api/v1/products
+    Body (JSON):
+    {
+      "ProductName": "Test Product",
+      "CategoryID": 1,
+      "Price": 99.99,
+      "Stock": 10,
+      "Status": "Active",
+      "SupplierID": 1
+    }
+    Expected: { "success": true, "data": { "ProductID": "P026", ... } }
+
+  Update a product (PUT):
+    PUT  http://localhost:3000/api/v1/products/P026
+    Body: { "Price": 89.99, "Stock": 20 }
+    Expected: { "success": true, "data": { ... updated product ... } }
+
+  Delete a product (DELETE):
+    DELETE http://localhost:3000/api/v1/products/P026
+    Expected: { "success": true }
+
+
+────────────────────────────────────────────────────────────────────────────────
+A.4  START THE FRONTEND
+────────────────────────────────────────────────────────────────────────────────
+
+  Open a SECOND terminal (keep the backend running in the first):
+
+    npm start
+
+  This runs the SAPUI5 app via ui5 serve on port 8080.
+  Open in browser:
+    http://localhost:8080
+
+  The app reads window.API_BASE_URL from index.html.
+  On localhost, it is set to: http://localhost:3000
+  On BTP, it uses a relative path: /api (routed by the approuter)
+
+
+────────────────────────────────────────────────────────────────────────────────
+A.5  FULL UI TESTING CHECKLIST
+────────────────────────────────────────────────────────────────────────────────
+
+  Home Dashboard:
+    [ ] Page loads without errors
+    [ ] 7 KPI tiles display correct numbers (Total Products: 25, etc.)
+    [ ] "View All Products" button navigates to product list
+
+  Product List:
+    [ ] All 25 products load with pagination (10 per page)
+    [ ] Page 2 and 3 work correctly
+    [ ] Search box filters products by name
+    [ ] Category dropdown filter works
+    [ ] Status filter (Active / Inactive / Discontinued) works
+    [ ] Sort by Name, Price, Stock works
+    [ ] "Add Product" button opens the product form
+
+  Product Detail:
+    [ ] Clicking a product opens the detail page
+    [ ] All fields display correctly (name, price, category, supplier, tags)
+    [ ] "Edit" button opens the edit form pre-filled with product data
+    [ ] "Delete" button removes the product and returns to the list
+
+  Create Product:
+    [ ] Form opens with empty fields
+    [ ] Required field validation works (leave name empty, try to save)
+    [ ] Saving creates a new product (P026) and it appears in the list
+    [ ] New product has correct ProductID format (P026, P027, etc.)
+
+  Edit Product:
+    [ ] Form pre-fills with existing product data
+    [ ] Changing price and saving reflects in the detail view
+    [ ] Tags can be added/removed
+
+  Delete Product:
+    [ ] Confirmation dialog appears before deletion
+    [ ] After deletion, product no longer appears in the list
+    [ ] Product count on home tiles decreases by 1
+
+
+
+
+================================================================================
+PART B — TASK BREAKDOWN: COMPLETE SETUP FROM SCRATCH
+================================================================================
+
+  This breakdown covers every step needed to set up the fullstack application
+  from scratch on a new BTP trial account.
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 1 — PREREQUISITES
+────────────────────────────────────────────────────────────────────────────────
+
+  [ ] 1.1  Create a BTP free trial account at account.hanatrial.ondemand.com
+  [ ] 1.2  Enable Cloud Foundry in your subaccount:
+           BTP Cockpit → Subaccount → Cloud Foundry → Enable
+           
+  [ ] 1.3  Install Node.js 18+ on your machine (node --version)
+  [ ] 1.4  Install CF CLI v8+:
+           Download from https://github.com/cloudfoundry/cli/releases
+           Verify: cf --version
+  [ ] 1.5  Install MBT build tool:
+           npm install -g mbt
+           Verify: mbt --version
+  [ ] 1.6  Install project dependencies:
+           npm install               (root — installs UI5 tooling)
+           cd backend && npm install (backend — installs @sap/hana-client etc.)
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 2 — CF CLI LOGIN
+────────────────────────────────────────────────────────────────────────────────
+
+  [ ] 2.1  Find your CF API endpoint:
+           BTP Cockpit → Subaccount Overview → Cloud Foundry → API Endpoint
+           It looks like: https://api.cf.us10-001.hana.ondemand.com
+
+  [ ] 2.2  Login to CF:
+           cf login -a https://api.cf.<your-region>.hana.ondemand.com
+           Enter your BTP email and password when prompted
+           Select org: 56bfb186trial
+           Select space: dev
+
+  [ ] 2.3  Verify login:
+           cf target
+           Should show: org=56bfb186trial, space=dev
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 3 — SAP HANA CLOUD SETUP  (most detailed phase)
+────────────────────────────────────────────────────────────────────────────────
+
+  This phase sets up the HANA Cloud database that the backend connects to.
+  It has two layers:
+    Layer 1: The HANA Cloud database instance (the actual database engine)
+    Layer 2: The schema plan CF service (your app's private schema inside Layer 1)
+
+  ── 3.1  Subscribe to SAP HANA Cloud tools ──────────────────────────────────
+
+  [ ] 3.1.1  BTP Cockpit → Subaccount → Services → Service Marketplace
+  [ ] 3.1.2  Search "SAP HANA Cloud" → click the tile
+  [ ] 3.1.3  Click "Create" → select plan: "tools" → click Create
+  [ ] 3.1.4  Wait for status: "Subscribed"
+             (Services → Instances and Subscriptions → Subscriptions tab)
+
+  WHY: The tools subscription gives you HANA Cloud Central (the UI to
+       create, start, stop, and manage HANA Cloud database instances).
+       Without this subscription, you cannot provision the database.
+
+  ── 3.2  Assign HANA Cloud Administrator role ────────────────────────────────
+
+  [ ] 3.2.1  BTP Cockpit → Subaccount → Security → Users
+  [ ] 3.2.2  Click your user (email address)
+  [ ] 3.2.3  Assign Role Collection: "SAP HANA Cloud Administrator"
+  [ ] 3.2.4  Also assign: "SAP HANA Cloud Viewer"
+  [ ] 3.2.5  Log out and log back into BTP Cockpit
+
+  WHY: Without these roles, HANA Cloud Central will show no instances
+       and you cannot start/stop the database.
+
+  ── 3.3  Provision the HANA Cloud database instance ─────────────────────────
+
+  [ ] 3.3.1  Services → Instances and Subscriptions → Subscriptions tab
+  [ ] 3.3.2  Click "Go to Application" on SAP HANA Cloud → opens HANA Cloud Central
+  [ ] 3.3.3  Click "Create Instance"
+  [ ] 3.3.4  Select type: "SAP HANA Cloud, SAP HANA Database"
+             (NOT Relational Data Lake, NOT HANA Cloud Connection)
+  [ ] 3.3.5  Provide JSON parameters when prompted:
+             {
+               "data": {
+                 "memory": 16,
+                 "systempassword": "YourStrongPassword1!",
+                 "edition": "cloud"
+               }
+             }
+             Password rules: 8+ chars, upper+lower+number+special char
+             SAVE this password — needed for DBADMIN access if required
+  [ ] 3.3.6  Map to CF space during creation:
+             Org: 56bfb186trial  /  Space: dev
+  [ ] 3.3.7  Set Allowed Connections: "Allow all IP addresses"
+             (required for BAS, local dev, and CF apps to connect)
+  [ ] 3.3.8  Click Create → wait 5–10 minutes for status: Running
+
+  WHY: This is the actual database engine. The schema plan service
+       (created next) runs INSIDE this instance. Without a running
+       HANA Cloud instance in your CF space, the schema service
+       broker cannot create your schema.
+
+  ── 3.4  Create the CF schema service ───────────────────────────────────────
+
+  [ ] 3.4.1  Confirm the schema plan is available:
+             cf marketplace -e hana
+             Look for "schema" in the plan column
+
+  [ ] 3.4.2  Create the service:
+             cf create-service hana schema product-catalog-hana
+
+             What this does:
+             — Creates a dedicated schema (namespace) on the trial-hana instance
+             — Auto-generates a database user (USR_XXXXXXXXXX)
+             — Auto-generates a password for that user
+             — Names the service "product-catalog-hana" (must match mta.yaml)
+
+  [ ] 3.4.3  Verify creation:
+             cf service product-catalog-hana
+             Status must show: "create succeeded"
+
+  WHY: The app never connects directly to the HANA instance with admin
+       credentials. It uses this schema service binding which gives it
+       a private, scoped user with access only to its own schema.
+
+  ── 3.5  Create and retrieve the service key ────────────────────────────────
+
+  [ ] 3.5.1  Create a service key:
+             cf create-service-key product-catalog-hana devkey
+
+  [ ] 3.5.2  Retrieve the credentials:
+             cf service-key product-catalog-hana devkey
+
+             The output will be JSON like:
+             {
+               "host":     "1167cf49-xxxx.hanacloud.ondemand.com",
+               "port":     "443",
+               "user":     "USR_8OHF4BBR56UBSSJOIDG8SXHGQ",
+               "password": "long-auto-generated-password",
+               "schema":   "USR_8OHF4BBR56UBSSJOIDG8SXHGQ"
+             }
+
+  [ ] 3.5.3  Note down: host, port, user, password, schema
+             These go into backend/.env
+
+  WHY: The service key exposes the auto-generated credentials so you can:
+       (a) run the schema migration script locally
+       (b) configure your local .env for development
+       The app on BTP reads these credentials from VCAP_SERVICES
+       automatically (no manual .env needed in production).
+
+  ── 3.6  Configure backend/.env ─────────────────────────────────────────────
+
+  [ ] 3.6.1  Open backend/.env and set these values from the service key:
+             DB_HOST=<host value — no quotes>
+             DB_PORT=443
+             DB_USER=<user value — no quotes>
+             DB_PASSWORD="<password value — wrap in double quotes>"
+             DB_SCHEMA=<schema value — same as DB_USER, no quotes>
+             DB_SSL_VALIDATE_CERT=false
+
+  [ ] 3.6.2  Remove or comment out SQL Server variables:
+             # DB_NAME=ProductCatalogDB
+             # DB_ENCRYPT=false
+             # DB_TRUST_CERT=true
+
+  [ ] 3.6.3  Verify the password loads correctly:
+             cd backend
+             node -e "require('dotenv').config(); console.log('PASS:', process.env.DB_PASSWORD);"
+             The full password must print — if it is truncated, the password
+             contains # characters and must be wrapped in double quotes.
+
+  IMPORTANT NOTES:
+    — DB_SCHEMA must always equal DB_USER for the schema plan
+    — DB_PORT is 443 (not 1433 — HANA Cloud uses HTTPS/SSL)
+    — Never use quotes around values in .env EXCEPT for passwords
+      containing special characters like # or spaces
+
+  ── 3.7  Run the database migration script ──────────────────────────────────
+
+  [ ] 3.7.1  Ensure trial-hana is Running in HANA Cloud Central
+  [ ] 3.7.2  Run from the backend/ directory:
+             cd backend
+             node db/hana/run-migrations.js
+
+             What the script does:
+             — Connects to HANA Cloud using credentials from .env
+             — Runs backend/db/hana/001_schema.sql:
+               Creates 5 tables (Categories, Suppliers, Tags, Products, ProductTags)
+               Creates 6 indexes on the Products table
+               Creates ProductIDSeq SEQUENCE (generates P001, P002, ...)
+               Creates vw_ProductFull VIEW (denormalised read model)
+             — Runs backend/db/hana/002_seed_data.sql:
+               Inserts 5 categories
+               Inserts 10 suppliers
+               Inserts 10 tags
+               Inserts 25 products (P001–P025)
+               Inserts ProductTags junction entries
+               Resets sequence to 26 (next product = P026)
+             — Prints verification: Products: 25, Categories: 5, etc.
+
+  [ ] 3.7.3  Expected final output:
+             Products in database : 25
+             Categories           : 5
+             Suppliers            : 10
+             Tags                 : 10
+             Migration complete!
+
+  [ ] 3.7.4  Re-run safety: the script skips already-existing objects.
+             It is safe to re-run if it was interrupted.
+
+  IMPORTANT NOTES:
+    — Run this ONCE before first use. Data persists across instance
+      stop/start cycles — you do NOT need to re-run it after restarts.
+    — SAP HANA requires one INSERT per row (multi-row VALUES not supported).
+      The seed script was written accordingly.
+    — HANA does not allow LOB types (NCLOB) in GROUP BY clauses.
+      The vw_ProductFull view uses a pre-aggregated subquery for tags
+      to avoid this restriction.
+
+  ── 3.8  Daily HANA Cloud routine (trial accounts) ──────────────────────────
+
+  Trial instances auto-stop after inactivity. Every work session:
+
+  [ ] 3.8.1  Open HANA Cloud Central
+  [ ] 3.8.2  Check status of trial-hana
+  [ ] 3.8.3  If "Stopped" → ⋮ → Start → wait for "Running"
+  [ ] 3.8.4  Then start the backend / deploy / run tests
+
+  Data is never lost on stop/start. Only active connections are dropped.
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 4 — LOCAL DEVELOPMENT TESTING
+────────────────────────────────────────────────────────────────────────────────
+
+  [ ] 4.1  Start backend:
+           cd backend && npm run dev
+           Verify: [DB] HANA pool connected in logs
+           Verify: GET http://localhost:3000/health → "database": true
+
+  [ ] 4.2  Start frontend (separate terminal):
+           npm start
+           Open: http://localhost:8080
+
+  [ ] 4.3  Run full UI checklist (see Part A.5 above)
+
+  [ ] 4.4  Test CRUD operations end-to-end:
+           Create product → Edit it → Delete it
+           Confirm database reflects changes via /health endpoint
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 5 — BTP CLOUD FOUNDRY DEPLOYMENT
+────────────────────────────────────────────────────────────────────────────────
+
+  [ ] 5.1  Confirm prerequisites:
+           cf target  →  shows org=56bfb186trial, space=dev
+           cf service product-catalog-hana  →  "create succeeded"
+           mbt --version  →  installed
+
+  [ ] 5.2  Ensure npm install is up to date in backend/:
+           cd backend && npm install && cd ..
+
+  [ ] 5.3  Build the MTA archive (run from project root in Git Bash):
+           mbt build -p cf
+           Output: mta_archives/product-catalog-manager_1.0.0.mtar
+           NOTE: Must use Git Bash on Windows (not CMD/PowerShell) because
+           the approuter build step uses the Linux "cp" command.
+
+  [ ] 5.4  Deploy to BTP Cloud Foundry:
+           cf deploy mta_archives/product-catalog-manager_1.0.0.mtar
+           Wait 5–8 minutes for both modules to show "started"
+
+  [ ] 5.5  Verify both apps are running:
+           cf apps
+           Both product-catalog-api and product-catalog-approuter must
+           show state: started  /  instances: 1/1
+
+
+  [ ] 5.6  Set CORS_ORIGIN on the API (do this after first deploy):
+           cf set-env product-catalog-api CORS_ORIGIN https://56bfb187trial-dev-product-catalog-approuter.cfapps.us10-001.hana.ondemand.com
+           cf restage product-catalog-api
+           Wait for the app to restart successfully.
+
+  [ ] 5.7  Test the deployed API health:
+           GET https://<api-url>/health
+           Expected: { "status": "ok", "database": true }
+
+  [ ] 5.8  Open the live app:
+           https://56bfb187trial-dev-product-catalog-approuter.cfapps.us10-001.hana.ondemand.com
+           Run the full UI checklist (Part A.5) against the live deployment.
+
+
+https://56bfb187trial-dev-product-catalog-approuter.cfapps.us10-001.hana.ondemand.com/index.html
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 6 — TROUBLESHOOTING REFERENCE
+────────────────────────────────────────────────────────────────────────────────
+
+  Problem                            Solution
+  ─────────────────────────────────────────────────────────────────────────────
+  "HANA Database instance is stopped" → Start trial-hana in HANA Cloud Central
+  "authentication failed"            → Re-run: cf service-key product-catalog-hana devkey
+                                       Copy exact password → update .env
+                                       Wrap password in double quotes if it contains #
+  "Socket closed by peer"            → In HANA Cloud Central → Edit instance
+                                       → Allowed Connections → Allow all IP addresses
+  "There is no database available"   → trial-hana must be Running before creating
+                                       the schema service
+  "database": false on /health       → Check DB_* vars in .env / VCAP_SERVICES
+  CORS error in browser              → Run: cf set-env + cf restage (Step 5.6)
+  "cp: command not found" (Windows)  → Use Git Bash for mbt build, not CMD
+  Password truncated in .env         → Wrap DB_PASSWORD value in double quotes
+  Role collections missing in BTP    → Subscribe to SAP HANA Cloud tools first
+                                       (the roles only appear after subscription)
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 7 — KEY FILES REFERENCE
+────────────────────────────────────────────────────────────────────────────────
+
+  File                                    Purpose
+  ─────────────────────────────────────────────────────────────────────────────
+  backend/.env                            Local DB credentials (never commit)
+  backend/package.json                    @sap/hana-client dependency
+  backend/src/config/database.js          HanaPool, HanaRequest, sql shim
+  backend/src/config/environment.js       Env var + VCAP_SERVICES parser
+  backend/src/repositories/*.js           All SQL queries (HANA syntax)
+  backend/db/hana/001_schema.sql          HANA DDL — tables, sequence, view
+  backend/db/hana/002_seed_data.sql       25 demo products + supporting data
+  backend/db/hana/run-migrations.js       Node.js script to run SQL files
+  mta.yaml                                BTP deployment descriptor
+  approuter/xs-app.json                   Approuter routing config
+  webapp/utils/ApiService.js              Frontend API call wrapper
+  webapp/index.html                       Sets API_BASE_URL for local vs BTP
+  Doc/HANA_Migration_Guide.txt            Full migration reference (14 sections)
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================

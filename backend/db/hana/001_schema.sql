@@ -129,6 +129,9 @@ CREATE SEQUENCE "ProductIDSeq"
 -- Tags are aggregated into a comma-separated string ("TagsCSV") and then
 -- split back into a string array by the rowToDto() function in the repository.
 
+-- Tags are pre-aggregated in a subquery so that the outer SELECT has no
+-- GROUP BY at all — this avoids HANA error 264 (LOB type in GROUP BY)
+-- which would occur because "Description" is NCLOB.
 CREATE VIEW "vw_ProductFull" AS
 SELECT
     p."ProductID",
@@ -150,17 +153,14 @@ SELECT
     p."Dimensions",
     p."CreatedAt",
     p."ModifiedAt",
-    STRING_AGG(t."TagName", ',')               AS "TagsCSV"
+    IFNULL(tg."TagsCSV", '')                   AS "TagsCSV"
 FROM        "Products"    p
-INNER JOIN  "Categories"  c  ON  p."CategoryID" = c."CategoryID"
-LEFT  JOIN  "Suppliers"   s  ON  p."SupplierID" = s."SupplierID"
-LEFT  JOIN  "ProductTags" pt ON  p."ProductID"  = pt."ProductID"
-LEFT  JOIN  "Tags"        t  ON  pt."TagID"     = t."TagID"
-GROUP BY
-    p."ProductID",    p."ProductName",  c."CategoryName",
-    p."SubCategory",  p."Description",  p."Price",
-    p."Currency",     p."Stock",        p."Unit",
-    p."Rating",       p."RatingCount",  p."Status",
-    s."SupplierName", p."Featured",     p."Discount",
-    p."Weight",       p."Dimensions",   p."CreatedAt",
-    p."ModifiedAt";
+INNER JOIN  "Categories"  c   ON  p."CategoryID" = c."CategoryID"
+LEFT  JOIN  "Suppliers"   s   ON  p."SupplierID" = s."SupplierID"
+LEFT  JOIN  (
+    SELECT   pt."ProductID",
+             STRING_AGG(t."TagName", ',') AS "TagsCSV"
+    FROM     "ProductTags" pt
+    JOIN     "Tags"        t  ON pt."TagID" = t."TagID"
+    GROUP BY pt."ProductID"
+)             tg  ON  tg."ProductID" = p."ProductID";

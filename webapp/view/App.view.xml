@@ -2,7 +2,7 @@
     xmlns:mvc="sap.ui.core.mvc"
     xmlns="sap.m"
     xmlns:f="sap.f"
-    controllerName="com.demo.productcatalog.controller.App"
+    controllerName="com.ardova.tradecard.controller.App"
     displayBlock="true">
     <Shell id="shell" appWidthLimited="false">
         <NavContainer id="navContainer" />

@@ -120,10 +120,7 @@ resources:
   #   services["hana"][0].credentials: { host, port, user, password, schema, certificate }
   #
   - name: product-catalog-hana
-    type: hana
-    parameters:
-      service: hana
-      service-plan: schema
+    type: org.cloudfoundry.existing-service
 
   # ── SQL SERVER REFERENCE ───────────────────────────────────────────────────
   # Original Azure SQL Server resource — user-provided service.

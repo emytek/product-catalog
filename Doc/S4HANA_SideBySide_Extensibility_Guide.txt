@@ -1,0 +1,1312 @@
+================================================================================
+
+        SAP S/4HANA PUBLIC CLOUD — SIDE-BY-SIDE EXTENSIBILITY
+        COMPLETE IMPLEMENTATION GUIDE
+
+        Context : Ardova Trade & Supply Management System
+        Apps    : Trade Card · Trade Finance · Trade Operations
+        Platform: SAP BTP Cloud Foundry + S/4HANA Public Cloud
+        Author  : Solution Architecture Reference
+        Version : 1.0  |  March 2026
+
+================================================================================
+
+
+
+
+TABLE OF CONTENTS
+────────────────────────────────────────────────────────────────────────────────
+  PART A  —  FOUNDATIONS
+  1.  What is Side-by-Side Extensibility
+  2.  Business Requirements
+  3.  Technical Requirements
+  4.  Overall Architecture Design
+
+  PART B  —  SETUP AND CONFIGURATION
+  5.  BTP Account and Service Setup
+  6.  S/4HANA Public Cloud Configuration
+  7.  BTP Destination Setup (BTP ↔ S/4HANA connectivity)
+
+  PART C  —  IMPLEMENTATION
+  8.  S/4HANA Custom Business Object (Trade Card CBO)
+  9.  CAP Service — Backend for All Three Apps
+  10. Trade Card Fiori App
+  11. Trade Finance Fiori App
+  12. Trade Operations Fiori App
+  13. Cross-App Data Flow and ID Pattern
+  14. Workflow and Approvals (SAP Build Process Automation)
+  15. Launchpad Integration (SAP Build Work Zone)
+
+  PART D  —  ARCHITECTURE RECOMMENDATION FOR 3-APP SYSTEM
+  16. Recommended Technical Approach — Detailed Explanation
+  17. Data Model Design
+  18. Status and Gate Pattern
+  19. Deployment Strategy
+
+  PART E  —  REFERENCE
+  20. Key SAP APIs Used
+  21. Troubleshooting Reference
+  22. Glossary
+────────────────────────────────────────────────────────────────────────────────
+
+
+
+
+================================================================================
+PART A — FOUNDATIONS
+================================================================================
+
+
+================================================================================
+1.  WHAT IS SIDE-BY-SIDE EXTENSIBILITY
+================================================================================
+
+Definition:
+  Side-by-side extensibility is SAP's recommended pattern for building custom
+  applications that extend S/4HANA Public Cloud WITHOUT modifying the core
+  system. Custom code lives on SAP BTP, not inside S/4HANA.
+
+The Core Principle — "Keep the Core Clean":
+  S/4HANA Public Cloud is a managed SaaS system. SAP delivers automatic
+  quarterly upgrades. If custom code is placed inside S/4HANA, those upgrades
+  can break your customisations. Side-by-side extensibility keeps all custom
+  code on BTP so S/4HANA can be upgraded without risk.
+
+The Two Sides:
+
+  S/4HANA Public Cloud (the core)          SAP BTP (the extension layer)
+  ────────────────────────────────         ────────────────────────────────
+  Standard SAP modules                     Custom Fiori apps (SAPUI5)
+  Custom Business Objects (CBOs)           CAP service (backend logic)
+  Custom Fields on standard objects        HANA Cloud (persistence)
+  SAP-managed OData V4 APIs                SAP Build Process Automation
+  Business Partner, Material, Finance      SAP Integration Suite
+  TRM, Transportation Management           SAP Build Work Zone (Launchpad)
+
+How they connect:
+  BTP apps call S/4HANA OData APIs via a BTP Destination Service.
+  S/4HANA events are forwarded to BTP via SAP Integration Suite iFlows.
+  User authentication is handled by SAP Identity Authentication Service (IAS).
+
+Why this matters for Ardova:
+  The Trade Card, Trade Finance, and Trade Operations processes do not exist
+  as standard SAP objects. They are custom to Ardova's petroleum trading
+  business. These custom objects and their Fiori apps must live on BTP.
+  However, they need to read from and write to S/4HANA data (Purchase
+  Contracts, Business Partners, etc.) — this is done through the OData APIs.
+
+
+================================================================================
+2.  BUSINESS REQUIREMENTS
+================================================================================
+
+2.1  Stakeholders and Users
+  ─────────────────────────
+  Trade Desk       — Creates and manages Trade Card contracts
+  Trade Finance    — Manages LC, Bank Guarantee, Bills for Collection, Form M
+  Trade Operations — Manages vessel, shipment, volume capture
+  Management       — Approves Trade Cards; views position dashboard
+
+2.2  Business Process Flow
+  ─────────────────────────
+  1. Trade Desk creates a Trade Card in S/4HANA and enters all contract
+     information: product type, quantity, counterparty, pricing terms,
+     delivery terms, contract type (Confirmed Order vs Open Market).
+
+  2. Trade Card is submitted for approval. Approver (management) reviews
+     and approves or rejects via workflow notification.
+
+  3. On approval, a unique Trade Card ID is generated: PM/YYYY/NNN
+     Example: PM/2026/001
+
+  4. Approval triggers activation of the Trade Finance record.
+     Trade Finance team is notified to begin LC/BG/Form M processing.
+
+  5. Trade Finance completion triggers activation of Trade Operations.
+     Operations team is notified to begin vessel/shipment management.
+
+  6. All three apps display data linked by the same Trade Card ID.
+     No duplicate data entry — Finance and Operations apps pull master
+     data from the Trade Card.
+
+2.3  Contract Types (Ardova-specific)
+  ──────────────────────────────────
+  Confirmed Order:
+    — Fixed price agreed with named customer
+    — Straightforward pricing, no trigger mechanism
+
+  Open Market:
+    — Floating price; price not fixed at contract creation
+    — Trigger mechanism: price portions of cargo in tranches
+    — Each tranche uses: prevailing ICE Gasoil price + premium
+    — Each tranche has its own USD/NGN exchange rate
+    — Pricing period + roll-over capability
+
+2.4  Key Business Rules
+  ──────────────────────
+  — Trade Finance cannot be activated before Trade Card is approved
+  — Trade Operations cannot be activated before Trade Finance is complete
+  — Once a Trade Card ID is issued it cannot be changed
+  — All data entry for Finance and Operations auto-populates from the
+    Trade Card to eliminate rekeying errors
+  — Position management must reflect real-time (not 1-day lag)
+
+2.5  Regulatory Requirements (Nigeria)
+  ──────────────────────────────────────
+  — Form M: Central Bank of Nigeria import documentation
+  — All FX (USD/NGN) rates must be captured per transaction tranche
+  — Volume reconciliation between contract quantity and delivered quantity
+  — Audit trail of all status changes and approvals
+
+
+================================================================================
+3.  TECHNICAL REQUIREMENTS
+================================================================================
+
+3.1  S/4HANA Public Cloud Side
+  ───────────────────────────────
+  [ ] S/4HANA Public Cloud tenant (any release from 2022 onwards)
+  [ ] Business user with the following roles assigned:
+        — SAP_BR_ADMINISTRATOR (for initial configuration)
+        — Custom Business Objects (Key User access)
+        — Custom Fields and Logic (Key User access)
+  [ ] APIs enabled in Communication Arrangements:
+        — SAP_COM_0007  (Purchase Contract API)
+        — SAP_COM_0008  (Business Partner API)
+        — SAP_COM_0629  (Custom Business Objects API — auto-generated)
+        — SAP_COM_0531  (Material API)
+  [ ] Communication System created in S/4HANA for BTP connectivity
+  [ ] Communication User (technical user) created for API access
+
+3.2  SAP BTP Side
+  ─────────────────
+  [ ] BTP Global Account with Cloud Foundry enabled
+  [ ] BTP Subaccount with space (e.g. "dev", "prod")
+  [ ] BTP Entitlements for the following services:
+        — SAP HANA Cloud (hana-free or hana plan)
+        — SAP HANA Cloud schema (hana, schema plan) — for CAP persistence
+        — SAP Build Work Zone, standard edition (launchpad)
+        — SAP Build Process Automation (workflow)
+        — SAP Integration Suite (optional — for advanced iFlow scenarios)
+        — Destination Service (destination, lite plan)
+        — XSUAA / Authorization and Trust Management (application plan)
+        — SAP Connectivity Service (connectivity, lite plan)
+  [ ] CF CLI v8+ installed
+  [ ] MBT build tool installed: npm install -g mbt
+  [ ] SAP CAP (Cloud Application Programming) tools:
+        npm install -g @sap/cds-dk
+        Verify: cds --version
+  [ ] SAP Fiori tools (for Fiori app generation):
+        npm install -g @sap/generator-fiori
+  [ ] Node.js 18+
+
+3.3  Developer Tools
+  ────────────────────
+  [ ] SAP Business Application Studio (BAS) — recommended IDE
+        Available on BTP: Services → Instances and Subscriptions
+        → Subscribe to "SAP Business Application Studio"
+  [ ] SAP Fiori Tools extension in BAS (pre-installed)
+  [ ] CF CLI configured and logged in
+
+
+================================================================================
+4.  OVERALL ARCHITECTURE DESIGN
+================================================================================
+
+4.1  High-Level Architecture
+  ─────────────────────────────
+
+  ┌─────────────────────────────────────────────────────────────────────┐
+  │                    SAP BUILD WORK ZONE (Launchpad)                  │
+  │         Trade Card tile │ Trade Finance tile │ Trade Ops tile       │
+  └──────────────┬──────────────────┬───────────────────┬──────────────┘
+                 │                  │                   │
+  ┌──────────────▼──────────────────▼───────────────────▼──────────────┐
+  │                    SAP BTP CLOUD FOUNDRY                            │
+  │                                                                     │
+  │  ┌─────────────┐  ┌──────────────────┐  ┌──────────────────────┐   │
+  │  │ SAP Approuter│  │  Trade Card App  │  │  Trade Finance App   │   │
+  │  │ (auth + route)  │  (SAPUI5)        │  │  (SAPUI5)            │   │
+  │  └──────┬──────┘  └────────┬─────────┘  └──────────┬───────────┘   │
+  │         │                  │                        │               │
+  │         │         ┌────────▼────────────────────────▼──────────┐   │
+  │         │         │         CAP Service (Node.js)               │   │
+  │         │         │  TradeCardService  TradeFinanceService      │   │
+  │         │         │  TradeOpsService   WorkflowService          │   │
+  │         │         └────────────────────┬───────────────────────┘   │
+  │         │                              │                            │
+  │         │                    ┌─────────▼──────────┐                │
+  │         │                    │  SAP HANA Cloud     │                │
+  │         │                    │  (CAP persistence)  │                │
+  │         │                    └────────────────────┘                │
+  └─────────┼──────────────────────────────────────────────────────────┘
+            │
+            │  (BTP Destination + OAuth2)
+            │
+  ┌─────────▼──────────────────────────────────────────────────────────┐
+  │                 S/4HANA PUBLIC CLOUD                                │
+  │                                                                     │
+  │  Custom Business Object: ZARDOVA_TRADE_CARD                        │
+  │  Trade Card ID Format: PM/YYYY/NNN                                 │
+  │                                                                     │
+  │  Standard Modules accessed via OData V4 APIs:                      │
+  │    — Purchase Contracts (MM)                                        │
+  │    — Business Partners                                              │
+  │    — Materials / Products                                           │
+  │    — TRM (Treasury Risk Management) for LC, BG, Form M             │
+  │    — Transportation Management for vessel data                      │
+  └────────────────────────────────────────────────────────────────────┘
+
+4.2  Recommended Backend Approach — CAP
+  ──────────────────────────────────────
+  SAP Cloud Application Programming Model (CAP) is the recommended choice
+  for the BTP backend because:
+
+  a) It generates OData V4 services automatically from a CDS data model
+  b) It has built-in support for calling S/4HANA Remote Services
+  c) It handles authentication (XSUAA) natively
+  d) It provides a clean separation: data model, service, handlers
+  e) SAP Fiori Elements apps work natively with CAP OData services
+  f) It deploys to BTP CF with a single mbt build + cf deploy
+
+  The CAP service is the SINGLE backend for all three Fiori apps.
+  All apps call the same CAP service endpoints. Data is shared via
+  the TradeCardId reference.
+
+
+
+
+================================================================================
+PART B — SETUP AND CONFIGURATION
+================================================================================
+
+
+================================================================================
+5.  BTP ACCOUNT AND SERVICE SETUP
+================================================================================
+
+Step 5.1 — Assign Entitlements
+  ──────────────────────────────
+  BTP Cockpit → Global Account → Entitlements → Entity Assignments
+  Select your subaccount → Configure Entitlements → Add Service Plans:
+
+  Service                              Plan
+  ────────────────────────────────────────────────────────
+  SAP HANA Cloud                       hana-free (trial) or hana
+  SAP HANA Schemas & HDI Containers    hdi-shared
+  Destination Service                  lite
+  Authorization and Trust Management   application
+  Connectivity                         lite
+  SAP Build Work Zone                  standard
+  SAP Build Process Automation         standard
+  SAP Business Application Studio      standard (already done)
+  HTML5 Application Repository         app-host
+
+  Save entitlements.
+
+Step 5.2 — Enable Cloud Foundry (if not done)
+  ─────────────────────────────────────────────
+  BTP Cockpit → Subaccount → Cloud Foundry → Enable
+  Create space: "dev"
+
+Step 5.3 — Create HANA Cloud Instance
+  ──────────────────────────────────────
+  (Same process as Product Catalog setup — see FullstackSetupSummary.txt
+   Phase 3.3 for detailed steps)
+
+  If already done: verify trial-hana is Running in HANA Cloud Central.
+
+Step 5.4 — Create CF Service Instances for CAP
+  ───────────────────────────────────────────────
+  Log in to CF:
+    cf login -a https://api.cf.<region>.hana.ondemand.com
+
+  Create XSUAA service (authentication):
+    cf create-service xsuaa application ardova-uaa \
+      -c '{"xsappname":"ardova-trade","tenant-mode":"dedicated"}'
+
+  Create Destination service:
+    cf create-service destination lite ardova-destination
+
+  Create HANA schema for CAP:
+    cf create-service hana schema ardova-hana-schema
+
+Step 5.5 — Subscribe to SAP Build Work Zone
+  ────────────────────────────────────────────
+  BTP Cockpit → Services → Service Marketplace
+  Search "SAP Build Work Zone" → Create → Plan: standard
+  Wait for: Subscribed
+
+  Assign roles to your user:
+    Security → Users → your user
+    → Assign Role Collection: "Launchpad_Admin"
+
+Step 5.6 — Subscribe to SAP Build Process Automation
+  ────────────────────────────────────────────────────
+  BTP Cockpit → Services → Service Marketplace
+  Search "SAP Build Process Automation" → Subscribe
+  Assign Role Collection: "ProcessAutomationAdmin"
+
+
+================================================================================
+6.  S/4HANA PUBLIC CLOUD CONFIGURATION
+================================================================================
+
+Step 6.1 — Create Communication System for BTP
+  ────────────────────────────────────────────────
+  In S/4HANA Public Cloud → search "Communication Systems" app
+
+  1. Click "New"
+  2. System ID:  BTP_ARDOVA_DEV
+  3. System Name: SAP BTP Ardova Development
+  4. Host Name: <your BTP CF API endpoint domain>
+     e.g. api.cf.us10-001.hana.ondemand.com
+  5. Under "Users for Inbound Communication":
+     Click "+" → Create new user
+     Name: BTP_INBOUND_USER
+     Authentication: User ID + Password
+     Note down the password
+  6. Save
+
+Step 6.2 — Create Communication Arrangement
+  ─────────────────────────────────────────────
+  Search "Communication Arrangements" app in S/4HANA
+
+  For each required API, create a communication arrangement:
+
+  Communication Scenario: SAP_COM_0008 (Business Partner)
+  System: BTP_ARDOVA_DEV
+  → This exposes Business Partner OData API to BTP
+
+  Communication Scenario: SAP_COM_0007 (Purchase Contract)
+  System: BTP_ARDOVA_DEV
+  → This exposes Purchase Contract API to BTP
+
+  Communication Scenario: SAP_COM_0531 (Product/Material)
+  System: BTP_ARDOVA_DEV
+  → This exposes Material/Product API to BTP
+
+  After creating the CBO (Step 8), also create:
+  Communication Scenario: SAP_COM_0629 (Custom Business Objects)
+  System: BTP_ARDOVA_DEV
+  → This exposes the Trade Card CBO OData API to BTP
+
+  For each arrangement: note the Service URL
+  Format: https://<your-s4hana-tenant>.s4hana.ondemand.com/sap/opu/odata4/...
+
+Step 6.3 — Get S/4HANA Tenant URL
+  ─────────────────────────────────
+  Your S/4HANA tenant URL format:
+    https://<company>-<client>.s4hana.ondemand.com
+
+  You will need this for the BTP Destination configuration in Step 7.
+
+
+================================================================================
+7.  BTP DESTINATION SETUP (BTP ↔ S/4HANA CONNECTIVITY)
+================================================================================
+
+  A BTP Destination is a named connection configuration that tells your
+  BTP app where S/4HANA is and how to authenticate.
+
+Step 7.1 — Create the Destination
+  ───────────────────────────────────
+  BTP Cockpit → Subaccount → Connectivity → Destinations → "New Destination"
+
+  Fill in:
+  ─────────────────────────────────────────────────────────────
+  Name:            S4HANA_ARDOVA
+  Type:            HTTP
+  URL:             https://<your-s4hana-tenant>.s4hana.ondemand.com
+  Proxy Type:      Internet
+  Authentication:  BasicAuthentication
+  User:            BTP_INBOUND_USER  (from Step 6.1)
+  Password:        <password from Step 6.1>
+  ─────────────────────────────────────────────────────────────
+
+  Additional Properties (click "New Property" for each):
+  ─────────────────────────────────────────────────────────────
+  Name                    Value
+  WebIDEEnabled           true
+  WebIDESystem            ARDOVA_S4HANA
+  WebIDEUsage             odata_abap
+  HTML5.DynamicDestination true
+  sap-client              <your S/4HANA client number, e.g. 100>
+  ─────────────────────────────────────────────────────────────
+
+  Click "Save" then click "Check Connection"
+  → Should return: "Connection to S4HANA_ARDOVA established. Response: 200"
+
+Step 7.2 — Test the destination from BAS
+  ──────────────────────────────────────────
+  In BAS, create a new project and in the data source step, select
+  "Connect to a System" — the S4HANA_ARDOVA destination should appear.
+  This confirms BAS can see and use the S/4HANA connection.
+
+
+
+
+================================================================================
+PART C — IMPLEMENTATION
+================================================================================
+
+
+================================================================================
+8.  S/4HANA CUSTOM BUSINESS OBJECT — TRADE CARD CBO
+================================================================================
+
+  The Trade Card CBO is the master record in S/4HANA that stores all
+  contract information. It is created using the "Custom Business Objects"
+  Fiori app in S/4HANA — no ABAP coding required for Public Cloud.
+
+Step 8.1 — Open Custom Business Objects App
+  ──────────────────────────────────────────
+  In S/4HANA Fiori Launchpad → search "Custom Business Objects"
+
+Step 8.2 — Create the Trade Card Business Object
+  ─────────────────────────────────────────────────
+  Click "New"
+
+  Business Object Name: Trade Card
+  Code:                 ZARDOVA_TRADE_CARD
+  Label:                Trade Card
+
+  Check these options:
+  ✓ Number Range Object  (enables automatic ID generation)
+  ✓ Change Documents     (audit trail)
+  ✓ Determination and Validation (enable custom logic)
+
+Step 8.3 — Define the Data Model (Fields)
+  ──────────────────────────────────────────
+  Click "Fields" tab. Add all required fields:
+
+  Field Name          Type         Length  Label
+  ────────────────────────────────────────────────────────────────────
+  TradeCardId         Text         20      Trade Card ID (PM/YYYY/NNN)
+  ContractType        Text         20      Contract Type
+  Counterparty        Text         10      Counterparty (Business Partner)
+  CounterpartyName    Text         100     Counterparty Name
+  Product             Text         40      Product (Material)
+  ProductDescription  Text         100     Product Description
+  Quantity            Quantity     13,3    Contract Quantity
+  QuantityUnit        Unit         3       Unit of Measure
+  PricePerUnit        Amount       15,2    Price Per Unit
+  Currency            Currency     5       Currency
+  PricingType         Text         20      Pricing Type (Fixed/Floating)
+  LoadPort            Text         50      Load Port
+  DischargePort       Text         50      Discharge Port
+  LoadDateFrom        Date                 Laycan From
+  LoadDateTo          Date                 Laycan To
+  DeliveryTerms       Text         10      Delivery Terms (Incoterms)
+  PaymentTerms        Text         4       Payment Terms
+  Status              Text         20      Status
+  ApprovedBy          Text         12      Approved By (User)
+  ApprovedAt          DateTime             Approval Date/Time
+  FinanceStatus       Text         20      Finance Status
+  OperationsStatus    Text         20      Operations Status
+  Remarks             Text         500     Remarks
+  CreatedBy           Text         12      Created By
+  CreatedAt           DateTime             Created At
+  ModifiedBy          Text         12      Modified By
+  ModifiedAt          DateTime             Modified At
+
+Step 8.4 — Configure Number Range for Trade Card ID
+  ────────────────────────────────────────────────────
+  The ID format is: PM/YYYY/NNN (e.g. PM/2026/001)
+
+  In S/4HANA → search "Number Ranges for Custom Business Objects"
+  Select your business object: ZARDOVA_TRADE_CARD
+  Create number range interval:
+    From: 0000000001
+    To:   9999999999
+  Current number: 0
+
+  Custom logic will format this as PM/YYYY/NNN using a
+  "Before Save" determination in Step 8.5.
+
+Step 8.5 — Add Custom Logic (Before Save)
+  ──────────────────────────────────────────
+  In the CBO → "Custom Logic" tab → "Create" → "Before Save"
+
+  This runs before every save and handles:
+  a) ID generation on first save:
+     IF bo~TradeCardId IS INITIAL.
+       DATA(year) = sy-datum(4).
+       DATA(seq)  = <next number from number range>.
+       bo~TradeCardId = |PM/{ year }/{ seq ALPHA = OUT }|.
+     ENDIF.
+
+  b) Status defaulting on first save:
+     IF bo~Status IS INITIAL.
+       bo~Status           = 'DRAFT'.
+       bo~FinanceStatus    = 'PENDING'.
+       bo~OperationsStatus = 'PENDING'.
+     ENDIF.
+
+  c) Status transition on approval:
+     IF bo~Status = 'APPROVED' AND bo~FinanceStatus = 'PENDING'.
+       bo~FinanceStatus = 'ACTIVE'.
+     ENDIF.
+
+Step 8.6 — Publish the CBO
+  ──────────────────────────
+  Click "Publish" in the CBO app.
+  This generates:
+  — A database table in S/4HANA for Trade Card data
+  — An OData V4 service (auto-generated URL)
+  — A Communication Scenario SAP_COM_0629 for API access
+
+Step 8.7 — Get the CBO OData Service URL
+  ──────────────────────────────────────────
+  After publishing:
+  1. Open Communication Arrangements app
+  2. Find the auto-generated arrangement for ZARDOVA_TRADE_CARD
+  3. Note the service URL — it will look like:
+     /sap/opu/odata4/sap/api_zardova_trade_card/srvd_a2x/sap/zardova_trade_card/0001/
+
+
+================================================================================
+9.  CAP SERVICE — BACKEND FOR ALL THREE APPS
+================================================================================
+
+  The CAP service is the BTP-side backend. It acts as a unified API layer
+  for all three Fiori apps. It calls S/4HANA APIs for master data and
+  persists Finance and Operations data in HANA Cloud on BTP.
+
+Step 9.1 — Create the CAP Project
+  ───────────────────────────────────
+  In BAS → New Project → CAP Project
+  Or from terminal:
+    cds init ardova-trade-service
+    cd ardova-trade-service
+
+  Project structure:
+    ardova-trade-service/
+    ├── db/             ← Data model (CDS files)
+    ├── srv/            ← Service definitions and handlers
+    ├── app/            ← (optional) UI content
+    ├── package.json
+    └── mta.yaml        ← BTP deployment descriptor
+
+Step 9.2 — Define the Data Model  (db/schema.cds)
+  ──────────────────────────────────────────────────
+  namespace ardova.trade;
+
+  entity TradeFinance {
+    key TradeFinanceId   : UUID;
+        TradeCardId      : String(20);   // FK → S/4HANA CBO
+        LCNumber         : String(30);
+        LCBank           : String(100);
+        LCAmount         : Decimal(15,2);
+        LCCurrency       : String(5);
+        BGNumber         : String(30);
+        BGBank           : String(100);
+        BGAmount         : Decimal(15,2);
+        FormMNumber      : String(30);
+        FormMStatus      : String(20);
+        CBNRate          : Decimal(10,4); // CBN USD/NGN rate
+        PaymentStatus    : String(20);
+        Status           : String(20);
+        CreatedBy        : String(12);
+        CreatedAt        : DateTime;
+        ModifiedAt       : DateTime;
+  }
+
+  entity TradeOperations {
+    key TradeOpsId       : UUID;
+        TradeCardId      : String(20);   // FK → S/4HANA CBO
+        VesselName       : String(100);
+        VesselIMO        : String(20);
+        VoyageNumber     : String(20);
+        BillOfLading     : String(30);
+        BLDate           : Date;
+        LoadQuantity     : Decimal(13,3);
+        DischargeQuantity: Decimal(13,3);
+        LoadPort         : String(50);
+        DischargePort    : String(50);
+        ETA              : Date;
+        ActualArrival    : Date;
+        NORTendered      : DateTime;
+        ShipmentStatus   : String(20);
+        Status           : String(20);
+        CreatedBy        : String(12);
+        CreatedAt        : DateTime;
+        ModifiedAt       : DateTime;
+  }
+
+  entity TriggerPricing {
+    key TriggerId        : UUID;
+        TradeCardId      : String(20);
+        TriggerNumber    : Integer;      // 1, 2, 3 ...
+        Quantity         : Decimal(13,3);
+        ICEGasoilPrice   : Decimal(10,4);
+        Premium          : Decimal(10,4);
+        FinalPrice       : Decimal(10,4);
+        USDNGNRate       : Decimal(10,4);
+        TriggerDate      : Date;
+        Status           : String(20);
+  }
+
+Step 9.3 — Define Remote Service for S/4HANA CBO  (srv/external/s4hana.cds)
+  ─────────────────────────────────────────────────────────────────────────────
+  @cds.external: true
+  service TradeCardS4 {
+    entity ZARDOVA_TRADE_CARD {
+      key TradeCardId      : String(20);
+          ContractType     : String(20);
+          Counterparty     : String(10);
+          CounterpartyName : String(100);
+          Product          : String(40);
+          Quantity         : Decimal(13,3);
+          QuantityUnit     : String(3);
+          PricePerUnit     : Decimal(15,2);
+          Currency         : String(5);
+          Status           : String(20);
+          FinanceStatus    : String(20);
+          OperationsStatus : String(20);
+          LoadPort         : String(50);
+          DischargePort    : String(50);
+          LoadDateFrom     : Date;
+          LoadDateTo       : Date;
+          DeliveryTerms    : String(10);
+          Remarks          : String(500);
+    }
+  }
+
+Step 9.4 — Define the CAP Service Layer  (srv/trade-service.cds)
+  ─────────────────────────────────────────────────────────────────
+  using ardova.trade from '../db/schema';
+  using TradeCardS4 from './external/s4hana';
+
+  service TradeService {
+
+    // Trade Card — read from S/4HANA CBO (no local persistence)
+    entity TradeCards     as projection on TradeCardS4.ZARDOVA_TRADE_CARD;
+
+    // Trade Finance — persisted in HANA Cloud on BTP
+    entity TradeFinances  as projection on TradeFinance;
+
+    // Trade Operations — persisted in HANA Cloud on BTP
+    entity TradeOperations as projection on TradeOperations;
+
+    // Trigger Pricing — persisted in HANA Cloud on BTP
+    entity TriggerPricings as projection on TriggerPricing;
+
+    // Custom action: approve Trade Card (calls S/4HANA)
+    action approveTradeCard(tradeCardId: String) returns TradeCards;
+
+    // Custom function: get full transaction view by ID
+    function getTransactionSummary(tradeCardId: String)
+      returns { tradeCard: TradeCards;
+                finance  : TradeFinances;
+                operations: TradeOperations; };
+  }
+
+Step 9.5 — Implement Service Handlers  (srv/trade-service.js)
+  ──────────────────────────────────────────────────────────────
+  const cds = require('@sap/cds');
+
+  module.exports = cds.service.impl(async function (srv) {
+
+    const S4TradeCard = await cds.connect.to('TradeCardS4');
+
+    // Delegate TradeCards reads to S/4HANA
+    srv.on('READ', 'TradeCards', async (req) => {
+      return S4TradeCard.run(req.query);
+    });
+
+    // Approve Trade Card — update status in S/4HANA
+    srv.on('approveTradeCard', async (req) => {
+      const { tradeCardId } = req.data;
+      await S4TradeCard.run(
+        UPDATE('ZARDOVA_TRADE_CARD')
+          .set({ Status: 'APPROVED', FinanceStatus: 'ACTIVE' })
+          .where({ TradeCardId: tradeCardId })
+      );
+      // Trigger workflow notification to Finance team
+      // (SAP Build Process Automation call here)
+      return S4TradeCard.run(
+        SELECT.one.from('ZARDOVA_TRADE_CARD')
+          .where({ TradeCardId: tradeCardId })
+      );
+    });
+
+    // Get full transaction summary (used when opening Finance or Ops app)
+    srv.on('getTransactionSummary', async (req) => {
+      const { tradeCardId } = req.data;
+      const { TradeFinances, TradeOperations } = srv.entities;
+
+      const [tradeCard, finance, operations] = await Promise.all([
+        S4TradeCard.run(
+          SELECT.one.from('ZARDOVA_TRADE_CARD')
+            .where({ TradeCardId: tradeCardId })
+        ),
+        cds.run(
+          SELECT.one.from(TradeFinances).where({ TradeCardId: tradeCardId })
+        ),
+        cds.run(
+          SELECT.one.from(TradeOperations).where({ TradeCardId: tradeCardId })
+        ),
+      ]);
+
+      return { tradeCard, finance, operations };
+    });
+
+    // Auto-populate Finance record from Trade Card on creation
+    srv.before('CREATE', 'TradeFinances', async (req) => {
+      const { TradeCardId } = req.data;
+      const tradeCard = await S4TradeCard.run(
+        SELECT.one.from('ZARDOVA_TRADE_CARD')
+          .where({ TradeCardId })
+      );
+      if (!tradeCard) req.error(404, `Trade Card ${TradeCardId} not found`);
+      if (tradeCard.FinanceStatus !== 'ACTIVE')
+        req.error(400, `Trade Card ${TradeCardId} is not yet approved`);
+    });
+
+  });
+
+Step 9.6 — Configure S/4HANA as External Service  (package.json)
+  ─────────────────────────────────────────────────────────────────
+  In package.json, under "cds" → "requires":
+
+  "TradeCardS4": {
+    "kind": "odata-v4",
+    "[production]": {
+      "credentials": {
+        "destination": "S4HANA_ARDOVA",
+        "path": "/sap/opu/odata4/sap/api_zardova_trade_card/..."
+      }
+    },
+    "[development]": {
+      "credentials": {
+        "url": "https://<your-s4hana>.s4hana.ondemand.com/...",
+        "authentication": "BasicAuthentication",
+        "username": "BTP_INBOUND_USER",
+        "password": "<password>"
+      }
+    }
+  }
+
+Step 9.7 — Deploy the CAP Service to BTP
+  ──────────────────────────────────────────
+  Build MTA:
+    mbt build -p cf
+
+  Deploy:
+    cf deploy mta_archives/ardova-trade-service_1.0.0.mtar
+
+  Verify:
+    cf apps
+    cf logs ardova-trade-service --recent
+
+
+================================================================================
+10.  TRADE CARD FIORI APP
+================================================================================
+
+  The Trade Card app is the MASTER app. It creates and manages trade
+  contracts. All Finance and Operations data is linked to a Trade Card ID.
+
+Step 10.1 — Generate the App in BAS
+  ────────────────────────────────────
+  BAS → New Project From Template → SAP Fiori Application
+  Template: List Report Object Page (Fiori Elements)
+  Data Source: Connect to a System → S4HANA_ARDOVA
+  Service: Select the Trade Card CBO OData service
+  Entity: ZARDOVA_TRADE_CARD
+  Project name: trade-card-app
+
+  WHY Fiori Elements: Generates enterprise-grade UI from annotations
+  with minimal custom coding. Standard patterns: list, detail, create/edit.
+
+Step 10.2 — Key Views
+  ──────────────────────
+  List Report Page:
+    — Table of all Trade Cards
+    — Columns: TradeCardId, ContractType, Counterparty, Product,
+               Quantity, Status, LoadDateFrom
+    — Filters: Status, ContractType, Date range
+    — "Create" button → navigates to Object Page in create mode
+
+  Object Page (Detail / Edit):
+    — Header: TradeCardId, Status badge, Counterparty, Product
+    — General Information section: all contract fields
+    — Pricing section: PricePerUnit, Currency, PricingType
+    — Trigger Pricing table (for Open Market contracts)
+    — Status Timeline: Draft → Submitted → Approved
+    — "Approve" button (management role only)
+    — Links to Trade Finance and Trade Operations (navigate by TradeCardId)
+
+Step 10.3 — Key Behaviours to Implement
+  ──────────────────────────────────────
+  — ID is READ-ONLY after first save (generated in S/4HANA CBO)
+  — "Approve" button calls CAP action: approveTradeCard(tradeCardId)
+  — After approval: Finance and Operations links become active
+  — Status badge uses colour coding:
+    DRAFT = Grey, SUBMITTED = Blue, APPROVED = Green, REJECTED = Red
+
+
+================================================================================
+11.  TRADE FINANCE FIORI APP
+================================================================================
+
+  The Trade Finance app shows detailed financial activities for a trade.
+  It is ACTIVATED only after the Trade Card is approved.
+
+Step 11.1 — Entry Point — Trade Card ID Lookup
+  ──────────────────────────────────────────────
+  When the user opens Trade Finance:
+  1. A search field prompts: "Enter Trade Card ID (e.g. PM/2026/001)"
+  2. User enters the ID
+  3. App calls: GET /TradeService/getTransactionSummary(tradeCardId='PM/2026/001')
+  4. Response includes the full Trade Card data + existing Finance record
+  5. Trade Card data auto-populates the Finance form (read-only)
+  6. Finance-specific fields are editable
+
+  If Trade Card is not approved yet:
+  → Show message: "This Trade Card has not been approved yet.
+                   Finance activities cannot begin."
+
+Step 11.2 — Key Views
+  ──────────────────────
+  Finance Overview Page:
+    — Trade Card summary (read-only, pulled from S/4HANA):
+        TradeCardId, Counterparty, Product, Quantity, LoadPort,
+        DischargePort, LoadDate, DeliveryTerms, PricePerUnit
+    — Finance Activities section (editable):
+        Letter of Credit: LCNumber, LCBank, LCAmount, LCCurrency
+        Bank Guarantee: BGNumber, BGBank, BGAmount
+        Form M: FormMNumber, FormMStatus, CBN Rate
+        Payment Status
+    — Trigger Pricing table (if contract type = Open Market):
+        Add trigger tranches: TriggerNumber, Quantity, ICEGasoilPrice,
+        Premium, FinalPrice, USD/NGN Rate, TriggerDate
+    — "Mark Finance Complete" button → triggers Operations activation
+
+Step 11.3 — Data Flow
+  ──────────────────────
+  READ  TradeCard    → from S/4HANA via CAP (getTransactionSummary)
+  WRITE TradeFinance → to HANA Cloud via CAP (CREATE or UPDATE)
+  READ  TradeFinance → from HANA Cloud via CAP
+
+
+================================================================================
+12.  TRADE OPERATIONS FIORI APP
+================================================================================
+
+  The Trade Operations app manages the physical movement of cargo.
+  It is ACTIVATED only after Trade Finance is marked complete.
+
+Step 12.1 — Entry Point (same pattern as Finance)
+  ───────────────────────────────────────────────────
+  User enters Trade Card ID → App fetches full transaction summary
+  → Trade Card data and Finance summary auto-populate (read-only)
+  → Operations fields are editable
+
+Step 12.2 — Key Views
+  ──────────────────────
+  Operations Overview Page:
+    — Trade Card summary (read-only): same as Finance header
+    — Finance summary (read-only): LC number, BG number, Form M status
+    — Vessel Information (editable):
+        VesselName, VesselIMO, VoyageNumber
+    — Shipment Details (editable):
+        BillOfLading, BLDate, LoadQuantity, DischargeQuantity
+        LoadPort, DischargePort, ETA, ActualArrival, NOR Tendered
+    — Shipment Status: PLANNED → LOADING → IN TRANSIT → DISCHARGED
+    — Volume Reconciliation:
+        Contract Quantity vs Actual Discharge Quantity
+        Variance calculation (automatic)
+
+
+================================================================================
+13.  CROSS-APP DATA FLOW AND ID PATTERN
+================================================================================
+
+13.1  Trade Card ID Format
+  ──────────────────────────
+  Format: PM/YYYY/NNN
+  Example: PM/2026/001
+
+  PM    = Petroleum Management (Ardova-specific prefix)
+  YYYY  = Year of creation (e.g. 2026)
+  NNN   = Sequential number padded to 3 digits (001, 002, ...)
+          Resets each year or continues — your business decision
+
+  The ID is generated in the S/4HANA CBO "Before Save" custom logic.
+  It is the PRIMARY KEY that links all three apps.
+
+13.2  Information Flow Between Apps
+  ────────────────────────────────────
+
+  TRADE CARD (S/4HANA CBO + BTP)
+      │
+      │  On Approval → FinanceStatus = ACTIVE
+      ▼
+  TRADE FINANCE (BTP — HANA Cloud)
+    reads Trade Card data via: getTransactionSummary(tradeCardId)
+    writes Finance data to: TradeFinances entity in CAP
+      │
+      │  On Finance Complete → OperationsStatus = ACTIVE in S/4HANA
+      ▼
+  TRADE OPERATIONS (BTP — HANA Cloud)
+    reads Trade Card + Finance summary via: getTransactionSummary(tradeCardId)
+    writes Operations data to: TradeOperations entity in CAP
+
+13.3  No Duplicate Data Entry
+  ──────────────────────────────
+  Every field that originates in Trade Card is READ-ONLY in Finance
+  and Operations. The user sees the data but cannot change it there.
+  Changes must be made in the Trade Card app (subject to status).
+
+  Fields that are auto-populated in Finance from Trade Card:
+    Counterparty, Product, Quantity, LoadPort, DischargePort,
+    LoadDate, DeliveryTerms, Currency, PricePerUnit
+
+  Fields that are auto-populated in Operations from Trade Card:
+    All of the above + LCNumber, FormMStatus from Finance
+
+
+================================================================================
+14.  WORKFLOW AND APPROVALS (SAP BUILD PROCESS AUTOMATION)
+================================================================================
+
+Step 14.1 — Create Approval Process
+  ────────────────────────────────────
+  BTP Cockpit → Services → Instances and Subscriptions
+  → Go to Application: SAP Build Process Automation
+
+  Create a new Process:
+  Name: Trade Card Approval Process
+
+  Trigger: API Trigger (called from CAP service when Trade Card is submitted)
+
+  Process steps:
+  1. Approval Task
+     Assignees: Role "TradeCardApprover" (resolved from XSUAA roles)
+     Subject: "Trade Card PM/YYYY/NNN requires your approval"
+     Detail: Show TradeCardId, Counterparty, Product, Quantity, Value
+     Actions: Approve / Reject
+
+  2. If Approved:
+     Action: Call CAP API → approveTradeCard(tradeCardId)
+     → This updates S/4HANA CBO Status = APPROVED
+     → Notifies Trade Finance team (email/notification)
+
+  3. If Rejected:
+     Action: Call CAP API → update status to REJECTED
+     → Notifies Trade Desk with rejection reason
+
+Step 14.2 — Finance Completion Trigger
+  ────────────────────────────────────────
+  When Finance user clicks "Mark Finance Complete":
+  CAP handler calls S/4HANA → update OperationsStatus = ACTIVE
+  → Notifies Trade Operations team
+
+Step 14.3 — Notifications
+  ──────────────────────────
+  SAP Build Process Automation sends email notifications at each stage.
+  Configure notification templates for:
+  — "Your Trade Card PM/2026/001 has been approved. Finance can proceed."
+  — "Trade Card PM/2026/001 Finance is complete. Operations can begin."
+  — "Trade Card PM/2026/001 has been rejected: <reason>"
+
+
+================================================================================
+15.  LAUNCHPAD INTEGRATION (SAP BUILD WORK ZONE)
+================================================================================
+
+Step 15.1 — Create Content Provider
+  ────────────────────────────────────
+  SAP Build Work Zone Admin → Channel Manager → Add HTML5 Apps
+  This scans your BTP CF space for deployed HTML5 apps.
+
+Step 15.2 — Create Site
+  ──────────────────────
+  Site Manager → Create Site
+  Name: Ardova Trade Management
+
+Step 15.3 — Add App Tiles
+  ───────────────────────────
+  For each app (Trade Card, Trade Finance, Trade Operations):
+  1. Content Manager → "+" → App
+  2. App properties:
+     Title:           Trade Card
+     Description:     Manage trade contracts
+     URL:             (auto-resolved from HTML5 app)
+     System/Alias:    (your BTP CF system)
+  3. Assign to a Role (e.g. "ArdovaTradeUser")
+  4. Create a Group: "Trade Management" and add all 3 tiles
+
+Step 15.4 — Assign Role to Users
+  ──────────────────────────────────
+  BTP Cockpit → Security → Role Collections
+  Create: ArdovaTradeUser
+  Add the Work Zone role + any app-specific roles
+  Assign to users who need access
+
+
+
+
+================================================================================
+PART D — ARCHITECTURE RECOMMENDATION FOR 3-APP SYSTEM
+================================================================================
+
+
+================================================================================
+16.  RECOMMENDED TECHNICAL APPROACH — DETAILED EXPLANATION
+================================================================================
+
+  For the Ardova Trade & Supply 3-app system, the recommended approach is:
+
+  ── RECOMMENDATION: CAP + S/4HANA CBO + Fiori Elements ──────────────────────
+
+  WHY CAP as the backbone:
+
+  1. SINGLE BACKEND FOR ALL 3 APPS
+     A single CAP service handles all data operations. The three Fiori apps
+     all call the same CAP OData endpoint. This means:
+     — One place to maintain business logic
+     — Consistent authentication and authorisation
+     — One deployment to manage
+
+  2. TRANSPARENT S/4HANA INTEGRATION
+     CAP's "Remote Services" feature lets you call S/4HANA OData APIs
+     as if they were local entities. The app code does not need to know
+     whether data comes from S/4HANA or local HANA Cloud — CAP handles it.
+
+  3. SPLIT PERSISTENCE (correct by design)
+     Trade Card master data → lives in S/4HANA (owned by the business)
+     Finance + Operations → lives in HANA Cloud on BTP (custom data)
+     This is the cleanest architecture for Public Cloud extensibility.
+
+  4. FIORI ELEMENTS REDUCES DEVELOPMENT TIME
+     Instead of building custom SAPUI5 views from scratch for every screen,
+     Fiori Elements generates the UI from OData annotations. A List Report
+     + Object Page for each app takes hours, not weeks.
+
+  5. SAP STANDARD APPROVAL PATTERN
+     SAP Build Process Automation integrates natively with CAP services.
+     The approval workflow (Trade Card → Finance → Operations) is built
+     visually without code using the Process Automation Studio.
+
+  ── WHAT NOT TO DO ──────────────────────────────────────────────────────────
+
+  ✗ Do not build 3 separate backends.
+    All 3 apps MUST share one CAP service. Separate backends create
+    data inconsistency and multiply maintenance.
+
+  ✗ Do not duplicate Trade Card data in HANA Cloud.
+    S/4HANA is the system of record for the Trade Card. Read it from
+    there via Remote Service. Never copy it to a second database.
+
+  ✗ Do not use plain Node.js REST API (like the Product Catalog pattern).
+    CAP gives you OData V4, Fiori Elements compatibility, S/4HANA
+    integration, and XSUAA auth out of the box. REST requires building
+    all of this manually.
+
+
+================================================================================
+17.  DATA MODEL DESIGN
+================================================================================
+
+  System of Record Mapping:
+  ─────────────────────────────────────────────────────────────────────────
+  Entity                Where it lives    Who owns it
+  ─────────────────────────────────────────────────────────────────────────
+  Trade Card            S/4HANA CBO       Trade Desk (creates + approves)
+  Business Partner      S/4HANA standard  SAP standard (read-only from apps)
+  Material/Product      S/4HANA standard  SAP standard (read-only from apps)
+  Trade Finance         BTP HANA Cloud    Finance team (creates + edits)
+  Trade Operations      BTP HANA Cloud    Operations team (creates + edits)
+  Trigger Pricing       BTP HANA Cloud    Finance team (creates per tranche)
+  ─────────────────────────────────────────────────────────────────────────
+
+  Relationship:
+  ─────────────────────────────────────────────────────────────────────────
+  TradeCard (S/4HANA)          1
+       │ TradeCardId
+       ├────────────────────── 1 ── TradeFinance (BTP HANA Cloud)
+       │                              └── 0..n  TriggerPricing
+       └────────────────────── 1 ── TradeOperations (BTP HANA Cloud)
+  ─────────────────────────────────────────────────────────────────────────
+
+
+================================================================================
+18.  STATUS AND GATE PATTERN
+================================================================================
+
+  The gate pattern ensures sequential process integrity.
+  Each app gate opens only when the preceding stage is complete.
+
+  ┌─────────────────┐
+  │   Trade Card    │  Status: DRAFT → SUBMITTED → APPROVED / REJECTED
+  │   (S/4HANA)     │
+  └────────┬────────┘
+           │  Gate 1: Trade Card Status = APPROVED
+           │          → FinanceStatus set to ACTIVE
+           ▼
+  ┌─────────────────┐
+  │  Trade Finance  │  Status: PENDING → ACTIVE → IN PROGRESS → COMPLETE
+  │  (BTP)          │
+  └────────┬────────┘
+           │  Gate 2: Finance Status = COMPLETE
+           │          → OperationsStatus set to ACTIVE
+           ▼
+  ┌─────────────────┐
+  │ Trade Operations│  Status: PENDING → ACTIVE → IN PROGRESS → COMPLETE
+  │ (BTP)           │
+  └─────────────────┘
+
+  Implementation in CAP:
+  Before CREATE on TradeFinances:
+    → Check TradeCard.FinanceStatus = 'ACTIVE' (else reject with 403)
+
+  Before CREATE on TradeOperations:
+    → Check TradeCard.OperationsStatus = 'ACTIVE' (else reject with 403)
+
+  Before UPDATE on TradeFinances (mark complete):
+    → Update S/4HANA CBO: OperationsStatus = 'ACTIVE'
+
+
+================================================================================
+19.  DEPLOYMENT STRATEGY
+================================================================================
+
+  Recommended environment progression:
+  ─────────────────────────────────────────────────────────────────────────
+  Environment    BTP Space    S/4HANA System    Purpose
+  ─────────────────────────────────────────────────────────────────────────
+  Development    dev          Test/Dev tenant   Active development
+  QA/Testing     qa           Test/Dev tenant   User acceptance testing
+  Production     prod         Production tenant Live business use
+  ─────────────────────────────────────────────────────────────────────────
+
+  MTA deployment per environment:
+    mbt build -p cf
+    cf deploy mta_archives/ardova-trade-service_1.0.0.mtar \
+      -e config/<env>.mtaext   ← environment-specific overrides
+
+  CI/CD (recommended for production):
+    Use SAP Continuous Integration and Delivery service on BTP
+    Pipeline: code commit → unit tests → mbt build → deploy to qa
+              → manual approval → deploy to prod
+
+
+
+
+================================================================================
+PART E — REFERENCE
+================================================================================
+
+
+================================================================================
+20.  KEY SAP APIS USED
+================================================================================
+
+  API Name                           Comm. Scenario   What it provides
+  ─────────────────────────────────────────────────────────────────────────
+  Business Partner (A2X)             SAP_COM_0008     Counterparty data
+  Purchase Contract (A2X)            SAP_COM_0007     Contract reference
+  Product / Material (A2X)           SAP_COM_0531     Product master data
+  Trade Card CBO (auto-generated)    SAP_COM_0629     Custom trade data
+  ─────────────────────────────────────────────────────────────────────────
+
+  API Browser:
+  All available S/4HANA Public Cloud APIs are documented at:
+  https://api.sap.com/package/SAPS4HANACloud/all
+  Search for any standard object to find its OData endpoint and schema.
+
+
+================================================================================
+21.  TROUBLESHOOTING REFERENCE
+================================================================================
+
+  Problem                              Solution
+  ─────────────────────────────────────────────────────────────────────────
+  "Destination not found"              Check BTP Destination name matches
+                                       package.json credentials.destination
+
+  "401 Unauthorized" from S/4HANA      Verify BTP_INBOUND_USER credentials
+                                       in Communication Arrangement
+
+  "404" on CBO OData path              Re-check the service URL from the
+                                       Communication Arrangement in S/4HANA
+
+  CAP cannot connect to S/4HANA        Check BTP Destination → "Check Connection"
+                                       Verify Communication System host/port
+
+  Finance app shows "not approved"     Verify CBO custom logic runs Before Save
+                                       Check FinanceStatus field is set to ACTIVE
+
+  Build Process Automation not         Assign ProcessAutomationAdmin role
+  triggering                           Check API trigger URL in the process
+
+  Work Zone tiles not appearing        Check Content Manager → HTML5 apps
+                                       Verify app is deployed and running in CF
+
+
+================================================================================
+22.  GLOSSARY
+================================================================================
+
+  Term                    Definition
+  ─────────────────────────────────────────────────────────────────────────
+  CAP                     SAP Cloud Application Programming Model. BTP
+                          framework for building OData services with Node.js
+                          or Java. The recommended backend for BTP apps.
+
+  CBO                     Custom Business Object. A no-code way to create
+                          new data objects in S/4HANA Public Cloud using the
+                          "Custom Business Objects" Fiori app.
+
+  Clean Core              SAP's design principle: all customisations live
+                          outside the S/4HANA system on BTP. Ensures that
+                          S/4HANA quarterly upgrades never break custom code.
+
+  Communication           S/4HANA configuration that defines WHICH API is
+  Arrangement             exposed to WHICH external system with WHAT credentials.
+
+  Destination             BTP service that stores connection details
+  (BTP)                   (URL, credentials) for external systems. Apps
+                          reference a destination by name, not hardcoded URL.
+
+  Fiori Elements          SAP UI5 framework that generates standard Fiori UI
+                          patterns (List Report, Object Page, etc.) from OData
+                          V4 annotations. Minimal custom code required.
+
+  Gate Pattern            Architecture pattern where a later process step
+                          cannot begin until an earlier step is formally
+                          completed and approved. Used here: Trade Card
+                          approval gates Finance; Finance completion gates Ops.
+
+  HANA Cloud (BTP)        SAP's cloud-native in-memory relational database on
+                          BTP. Used by CAP for persisting custom app data.
+
+  iFlow                   Integration Flow. A configured data transformation
+                          and routing process in SAP Integration Suite.
+
+  MTA                     Multi-Target Application. SAP BTP deployment format
+                          that bundles multiple modules (apps + services) into
+                          a single deployable archive (.mtar file).
+
+  Remote Service (CAP)    A CAP configuration that allows calling an external
+                          OData service (like S/4HANA) as if it were a local
+                          CAP entity. CAP handles the HTTP calls transparently.
+
+  SAP Build Work Zone     BTP service that provides a unified Fiori Launchpad
+                          for all custom and standard SAP apps.
+
+  SAP Build Process       BTP service for building approval workflows and
+  Automation              automations visually without code.
+
+  XSUAA                   Extended Services for User Account and Authentication.
+                          BTP's OAuth2-based security service. Used by CAP
+                          for role-based access control.
+  ─────────────────────────────────────────────────────────────────────────
+
+
+================================================================================
+END OF DOCUMENT
+================================================================================

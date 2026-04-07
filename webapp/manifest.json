@@ -1,10 +1,10 @@
 {
   "_version": "1.59.0",
   "sap.app": {
-    "id": "com.demo.productcatalog",
+    "id": "com.ardova.tradecard",
     "type": "application",
-    "title": "Product Catalog Manager",
-    "description": "SAP Fiori CRUD Demo Application for managing product catalogs",
+    "title": "Trade Card",
+    "description": "Ardova Trade & Supply — Trade Card Management",
     "applicationVersion": {
       "version": "1.0.0"
     },
@@ -14,7 +14,7 @@
   "sap.ui": {
     "technology": "UI5",
     "icons": {
-      "icon": "sap-icon://product",
+      "icon": "sap-icon://document",
       "favIcon": "",
       "phone": "",
       "phone@2": "",
@@ -29,7 +29,7 @@
   },
   "sap.ui5": {
     "rootView": {
-      "viewName": "com.demo.productcatalog.view.App",
+      "viewName": "com.ardova.tradecard.view.App",
       "type": "XML",
       "id": "app"
     },
@@ -39,7 +39,8 @@
         "sap.m": {},
         "sap.f": {},
         "sap.ui.core": {},
-        "sap.ui.layout": {}
+        "sap.ui.layout": {},
+        "sap.uxap": {}
       }
     },
     "contentDensities": {
@@ -50,10 +51,10 @@
       "i18n": {
         "type": "sap.ui.model.resource.ResourceModel",
         "settings": {
-          "bundleName": "com.demo.productcatalog.i18n.i18n"
+          "bundleName": "com.ardova.tradecard.i18n.i18n"
         }
       },
-      "products": {
+      "tradeCard": {
         "type": "sap.ui.model.json.JSONModel",
         "settings": {}
       },
@@ -65,54 +66,22 @@
       "config": {
         "routerClass": "sap.m.routing.Router",
         "viewType": "XML",
-        "viewPath": "com.demo.productcatalog.view",
+        "viewPath": "com.ardova.tradecard.view",
         "controlId": "navContainer",
         "controlAggregation": "pages",
         "async": true
       },
       "routes": [
         {
-          "name": "home",
+          "name": "tradeCard",
           "pattern": "",
-          "target": "home"
-        },
-        {
-          "name": "productList",
-          "pattern": "products",
-          "target": "productList"
-        },
-        {
-          "name": "productForm",
-          "pattern": "products/new",
-          "target": "productForm"
-        },
-        {
-          "name": "productDetail",
-          "pattern": "products/{productId}",
-          "target": "productDetail"
-        },
-        {
-          "name": "productEdit",
-          "pattern": "products/{productId}/edit",
-          "target": "productForm"
+          "target": "tradeCard"
         }
       ],
       "targets": {
-        "home": {
-          "viewName": "Home",
+        "tradeCard": {
+          "viewName": "TradeCard",
           "viewLevel": 1
-        },
-        "productList": {
-          "viewName": "ProductList",
-          "viewLevel": 2
-        },
-        "productDetail": {
-          "viewName": "ProductDetail",
-          "viewLevel": 3
-        },
-        "productForm": {
-          "viewName": "ProductForm",
-          "viewLevel": 3
         }
       }
     },
