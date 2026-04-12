@@ -1233,9 +1233,207 @@
                                             </form:content>
                                         </form:SimpleForm>
 
+                                        <!-- ── PROFITABILITY SUMMARY ──────────── -->
+                                        <VBox class="tcSubSectionLabelBox">
+                                            <Title text="PROFITABILITY SUMMARY" level="H5" class="tcSubSectionLabel"/>
+                                        </VBox>
+                                        <form:SimpleForm editable="true" layout="ResponsiveGridLayout"
+                                                         labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                                         adjustLabelSpan="false" class="tcSubForm">
+                                            <form:content>
+                                                <Label text="Current Selling Price/Ltr (kg)"/>
+                                                <Input type="Number" value="{tradeCard>/profitability/currentSellingPricePerLtr}" placeholder="0.00" width="100%"/>
+
+                                                <Label text="Estimated Finance Charge (NGN)"/>
+                                                <Input type="Number" value="{tradeCard>/profitability/estFinanceChargeNGN}" placeholder="0.00" width="100%"/>
+
+                                                <Label text="Estimated Finance Charge (USD)"/>
+                                                <Input type="Number" value="{tradeCard>/profitability/estFinanceChargeUSD}" placeholder="0.00" width="100%"/>
+
+                                                <Label text="Other Finance Costs"/>
+                                                <Input type="Number" value="{tradeCard>/profitability/otherFinanceCosts}" placeholder="0.00" width="100%"/>
+
+                                                <Label text="Total Finance Costs"/>
+                                                <Input type="Number" value="{tradeCard>/profitability/totalFinanceCosts}" placeholder="0.00" editable="false" class="tcReadOnlyTotal" width="100%"/>
+
+                                                <Label text="Total Landing Cost"/>
+                                                <Input type="Number" value="{tradeCard>/profitability/totalLandingCost}" placeholder="0.00" editable="false" class="tcReadOnlyTotal" width="100%"/>
+
+                                                <Label text="Total Landing Cost/Ltr"/>
+                                                <Input type="Number" value="{tradeCard>/profitability/totalLandingCostPerLtr}" placeholder="0.00" editable="false" class="tcReadOnlyTotal" width="100%"/>
+
+                                                <Label text="Estimated Revenue"/>
+                                                <Input type="Number" value="{tradeCard>/profitability/estimatedRevenue}" placeholder="0.00" width="100%"/>
+
+                                                <Label text="Estimated Profit"/>
+                                                <Input type="Number" value="{tradeCard>/profitability/estimatedProfit}" placeholder="0.00" editable="false" class="tcReadOnlyTotal tcProfitField" width="100%"/>
+
+                                                <Label text="Finance Recommendation"/>
+                                                <TextArea value="{tradeCard>/profitability/financeRecommendation}"
+                                                          placeholder="Enter finance team recommendation"
+                                                          rows="3"
+                                                          growing="true"
+                                                          width="100%"/>
+
+                                                <Label text="Send For Trade Approval"/>
+                                                <Switch state="{tradeCard>/profitability/sendForTradeApproval}"
+                                                        customTextOn="Yes"
+                                                        customTextOff="No"
+                                                        change="onSendForTradeApprovalChange"/>
+                                            </form:content>
+                                        </form:SimpleForm>
+
                                     </VBox><!-- END RIGHT COLUMN -->
 
                                 </HBox><!-- END OPS LOGISTICS CONTAINER -->
+
+                                <!-- ════════════════════════════════════════════
+                                     SECTION 5 — APPROVAL
+                                     ════════════════════════════════════════════ -->
+                                <VBox class="tcSectionHeaderBox tcSectionSpacingTop">
+                                    <Title text="Approval" level="H3" class="tcSectionTitle"/>
+                                    <HTML content="&lt;hr class='tcHrBold'/&gt;"/>
+                                </VBox>
+
+                                <form:Form id="approvalForm"
+                                           editable="true"
+                                           class="tcGeneralForm tcApprovalForm">
+                                    <form:layout>
+                                        <form:ResponsiveGridLayout
+                                            columnsXL="2" columnsL="2" columnsM="1" columnsS="1"
+                                            labelSpanXL="6" labelSpanL="6" labelSpanM="4" labelSpanS="12"
+                                            adjustLabelSpan="false"
+                                            emptySpanXL="0" emptySpanL="0" emptySpanM="0" emptySpanS="0"
+                                            singleContainerFullSize="false"/>
+                                    </form:layout>
+                                    <form:formContainers>
+
+                                        <!-- ── LEFT ───────────────────────────── -->
+                                        <form:FormContainer>
+                                            <form:formElements>
+
+                                                <form:FormElement label="Trade Request Sent By">
+                                                    <form:fields>
+                                                        <Input value="{tradeCard>/approvals/tradeRequestSentBy}"
+                                                               placeholder="User name"
+                                                               editable="false"
+                                                               class="tcReadOnlyAudit"
+                                                               width="100%"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Trade Request Sent Date/Time">
+                                                    <form:fields>
+                                                        <DateTimePicker value="{tradeCard>/approvals/tradeRequestSentDateTime}"
+                                                                        valueFormat="yyyy-MM-ddTHH:mm:ss"
+                                                                        displayFormat="dd MMM yyyy HH:mm"
+                                                                        placeholder="System stamped"
+                                                                        enabled="false"
+                                                                        class="tcReadOnlyAudit"
+                                                                        width="100%"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Operations Review By">
+                                                    <form:fields>
+                                                        <Input value="{tradeCard>/approvals/opsReviewBy}"
+                                                               placeholder="User ID / Name"
+                                                               editable="false"
+                                                               class="tcReadOnlyAudit"
+                                                               width="100%"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Operations Review Date/Time">
+                                                    <form:fields>
+                                                        <DateTimePicker value="{tradeCard>/approvals/opsReviewDateTime}"
+                                                                        valueFormat="yyyy-MM-ddTHH:mm:ss"
+                                                                        displayFormat="dd MMM yyyy HH:mm"
+                                                                        placeholder="System stamped"
+                                                                        enabled="false"
+                                                                        class="tcReadOnlyAudit"
+                                                                        width="100%"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Finance Review By">
+                                                    <form:fields>
+                                                        <Input value="{tradeCard>/approvals/financeReviewBy}"
+                                                               placeholder="User name"
+                                                               editable="false"
+                                                               class="tcReadOnlyAudit"
+                                                               width="100%"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                            </form:formElements>
+                                        </form:FormContainer>
+
+                                        <!-- ── RIGHT ──────────────────────────── -->
+                                        <form:FormContainer>
+                                            <form:formElements>
+
+                                                <form:FormElement label="Finance Review Date/Time">
+                                                    <form:fields>
+                                                        <DateTimePicker value="{tradeCard>/approvals/financeReviewDateTime}"
+                                                                        valueFormat="yyyy-MM-ddTHH:mm:ss"
+                                                                        displayFormat="dd MMM yyyy HH:mm"
+                                                                        placeholder="System stamped"
+                                                                        enabled="false"
+                                                                        class="tcReadOnlyAudit"
+                                                                        width="100%"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Trade Approval By">
+                                                    <form:fields>
+                                                        <Input value="{tradeCard>/approvals/tradeApprovalBy}"
+                                                               placeholder="User ID / Name"
+                                                               editable="false"
+                                                               class="tcReadOnlyAudit"
+                                                               width="100%"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Trade Approval">
+                                                    <form:fields>
+                                                        <Select selectedKey="{tradeCard>/approvals/tradeApproval}"
+                                                                width="100%"
+                                                                change="onTradeApprovalChange">
+                                                            <items>
+                                                                <core:Item key="" text="-- Select --"/>
+                                                                <core:Item key="APPROVE" text="Approve"/>
+                                                                <core:Item key="REJECT"  text="Reject"/>
+                                                            </items>
+                                                        </Select>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Trade Approval Remark">
+                                                    <form:fields>
+                                                        <Input value="{tradeCard>/approvals/tradeApprovalRemark}"
+                                                               placeholder="Enter approval or rejection remark"
+                                                               width="100%"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                                <form:FormElement label="Trade Approval Date/Time">
+                                                    <form:fields>
+                                                        <DateTimePicker value="{tradeCard>/approvals/tradeApprovalDateTime}"
+                                                                        valueFormat="yyyy-MM-ddTHH:mm:ss"
+                                                                        displayFormat="dd MMM yyyy HH:mm"
+                                                                        placeholder="System stamped"
+                                                                        enabled="false"
+                                                                        class="tcReadOnlyAudit"
+                                                                        width="100%"/>
+                                                    </form:fields>
+                                                </form:FormElement>
+
+                                            </form:formElements>
+                                        </form:FormContainer>
+
+                                    </form:formContainers>
+                                </form:Form>
 
                                 <!-- Bottom spacer -->
                                 <VBox class="tcBottomSpacer"/>

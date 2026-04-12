@@ -202,6 +202,35 @@ sap.ui.define([
                     otherOpCostAmount:         null,
                     totalLogisticsCost:        null,
                     sendToFinance:             false
+                },
+
+                // ── Profitability Summary ────────────────────────────────
+                profitability: {
+                    currentSellingPricePerLtr: null,
+                    estFinanceChargeNGN:        null,
+                    estFinanceChargeUSD:        null,
+                    otherFinanceCosts:          null,
+                    totalFinanceCosts:          null,
+                    totalLandingCost:           null,
+                    totalLandingCostPerLtr:     null,
+                    estimatedRevenue:           null,
+                    estimatedProfit:            null,
+                    financeRecommendation:      "",
+                    sendForTradeApproval:       false
+                },
+
+                // ── Approval Audit Trail ─────────────────────────────────
+                approvals: {
+                    tradeRequestSentBy:       "",
+                    tradeRequestSentDateTime: null,
+                    opsReviewBy:              "",
+                    opsReviewDateTime:        null,
+                    financeReviewBy:          "",
+                    financeReviewDateTime:    null,
+                    tradeApprovalBy:          "",
+                    tradeApproval:            "",
+                    tradeApprovalRemark:      "",
+                    tradeApprovalDateTime:    null
                 }
             };
         }

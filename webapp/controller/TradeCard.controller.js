@@ -164,6 +164,33 @@ sap.ui.define([
                     unionDuePerLtr: null, unionDuesCostNGN: null,
                     otherOpCostDesc: "", otherOpCostAmount: null,
                     totalLogisticsCost: null, sendToFinance: false
+                },
+
+                profitability: {
+                    currentSellingPricePerLtr: null,
+                    estFinanceChargeNGN:    null,
+                    estFinanceChargeUSD:    null,
+                    otherFinanceCosts:      null,
+                    totalFinanceCosts:      null,
+                    totalLandingCost:       null,
+                    totalLandingCostPerLtr: null,
+                    estimatedRevenue:       null,
+                    estimatedProfit:        null,
+                    financeRecommendation:  "",
+                    sendForTradeApproval:   false
+                },
+
+                approvals: {
+                    tradeRequestSentBy:       "",
+                    tradeRequestSentDateTime: null,
+                    opsReviewBy:              "",
+                    opsReviewDateTime:        null,
+                    financeReviewBy:          "",
+                    financeReviewDateTime:    null,
+                    tradeApprovalBy:          "",
+                    tradeApproval:            "",
+                    tradeApprovalRemark:      "",
+                    tradeApprovalDateTime:    null
                 }
             };
         },
@@ -235,6 +262,78 @@ sap.ui.define([
                         }.bind(this)
                     }
                 );
+            }
+            this._setDirty(true);
+        },
+
+        // ─────────────────────────────────────────────────────────────────
+        // SEND FOR TRADE APPROVAL — confirmation guard
+        // ─────────────────────────────────────────────────────────────────
+
+        onSendForTradeApprovalChange: function (oEvent) {
+            var bState  = oEvent.getParameter("state");
+            var oSource = oEvent.getSource();
+            var oModel  = this.getView().getModel("tradeCard");
+
+            if (bState) {
+                // Validate profitability fields before submitting for approval
+                var fProfit = parseFloat(oModel.getProperty("/profitability/estimatedProfit"));
+                if (!oModel.getProperty("/profitability/financeRecommendation")) {
+                    MessageBox.warning(
+                        "Please enter a Finance Recommendation before sending for Trade Approval.",
+                        { title: "Recommendation Required" }
+                    );
+                    oSource.setState(false);
+                    oModel.setProperty("/profitability/sendForTradeApproval", false);
+                    return;
+                }
+
+                MessageBox.confirm(
+                    "This will submit the Trade Card for approval.\n\n" +
+                    "Estimated Profit: " + (isNaN(fProfit) ? "N/A" : fProfit.toLocaleString()) + "\n\n" +
+                    "Proceed?",
+                    {
+                        title: "Send for Trade Approval",
+                        onClose: function (sAction) {
+                            if (sAction !== MessageBox.Action.OK) {
+                                oSource.setState(false);
+                                oModel.setProperty("/profitability/sendForTradeApproval", false);
+                            } else {
+                                // Auto-stamp the request sent datetime
+                                var sNow = new Date().toISOString().replace("Z", "").replace(".", "T").slice(0, 19);
+                                oModel.setProperty("/approvals/tradeRequestSentDateTime", sNow);
+                                MessageToast.show("Trade Card submitted for approval.");
+                            }
+                        }.bind(this)
+                    }
+                );
+            }
+            this._setDirty(true);
+        },
+
+        // ─────────────────────────────────────────────────────────────────
+        // TRADE APPROVAL DECISION — status sync
+        // ─────────────────────────────────────────────────────────────────
+
+        onTradeApprovalChange: function (oEvent) {
+            var sDecision = oEvent.getSource().getSelectedKey();
+            var oModel    = this.getView().getModel("tradeCard");
+
+            if (sDecision) {
+                // Stamp approval datetime automatically
+                var sNow = new Date().toISOString().replace("Z", "").replace(".", "T").slice(0, 19);
+                oModel.setProperty("/approvals/tradeApprovalDateTime", sNow);
+
+                // Sync Trade Card status to match the approval decision
+                oModel.setProperty(
+                    "/status",
+                    sDecision === "APPROVE" ? "APPROVED" : "REJECTED"
+                );
+
+                var sMsg = sDecision === "APPROVE"
+                    ? "Trade Card approved. Status updated to Approved."
+                    : "Trade Card rejected. Status updated to Rejected.";
+                MessageToast.show(sMsg);
             }
             this._setDirty(true);
         },

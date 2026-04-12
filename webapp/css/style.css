@@ -363,6 +363,39 @@ hr.tcHrMedium {
 }
 
 
+/* ── PROFITABILITY — Estimated Profit highlight ──────────────── */
+
+/* Positive profit — green tint */
+.tcProfitField.tcReadOnlyTotal.sapMInputBase {
+    border-left: 3px solid var(--sapPositiveColor, #256f3a) !important;
+}
+
+
+/* ── APPROVAL SECTION ────────────────────────────────────────── */
+
+/* Slight top padding separation from previous section */
+.tcApprovalForm {
+    margin-top: 0.5rem;
+}
+
+/* Read-only audit trail fields — system-stamped, visually distinct */
+.tcReadOnlyAudit.sapMInputBase,
+.tcReadOnlyAudit.sapMDP {
+    background-color: var(--sapField_ReadOnly_Background, #f0f4f7) !important;
+    border-color: var(--sapField_ReadOnly_BorderColor, #c5cdd4) !important;
+    color: var(--sapNeutralTextColor, #556b7a) !important;
+    font-style: italic;
+}
+
+/* Trade Approval select — highlight Approve green / Reject red */
+.tcApprovalForm .sapMSlt[data-value="APPROVE"] {
+    border-color: var(--sapPositiveColor, #256f3a) !important;
+}
+.tcApprovalForm .sapMSlt[data-value="REJECT"] {
+    border-color: var(--sapNegativeColor, #aa0808) !important;
+}
+
+
 /* ── BOTTOM SPACER ───────────────────────────────────────────── */
 
 .tcBottomSpacer {
